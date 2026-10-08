@@ -342,11 +342,16 @@
   // Ventende kald gemmes ikke: genindlæses siden, slipper agentens kald aldrig.
   const waiters = new Set();
 
+  const learningReview=source=>({guidance:window.ORDERLY.LEARNING_REVIEW_INSTRUCTION,source});
   function answeredPayload(task) {
     task.response.seen = true;
-    state.captureDue = !task.mail;
+    state.captureDue = true;
     saveState();
+    return {...answerDetails(task),learning_review:learningReview({kind:task.mail?'mail_review':task.pageProposalId?'page_proposal_response':'task_response',via:task.response.via,task_id:task.id,received_at:task.response.at,...(task.caseId?{case_id:task.caseId}:{})})};
+  }
+  function answerDetails(task) {
     if (task.pageProposalId) return {status:'answered',task_id:task.id,page_id:task.pageProposalId,action:task.response.action,
+      answers:answersFor(task,task.response.values),...(task.response.values[FREE_ID]?{comment:task.response.values[FREE_ID]}:{}),
       guidance_for_agent:task.response.action==='approve-page'?'Brugeren godkendte siden. Hent get_page og byg med build_page.':'Brugeren afviste siden. Byg den ikke.'};
     if (task.mail) {
       const sent = task.response.action === 'send';
@@ -358,7 +363,7 @@
         email: task.response.values.mail,
         ...(task.response.values[FREE_ID] ? { comment: task.response.values[FREE_ID] } : {}),
         guidance_for_agent: sent
-          ? 'Brugeren godkendte mailen, og den ligger nu som sendt i sagen (simuleret). Har brugeren rettet i den, så læg mærke til hvordan – det siger noget om deres tone og præferencer (læg det i grafen). Simulér gerne et realistisk svar med receive_email, når det giver mening i sagen, og arbejd videre.'
+          ? 'Brugeren godkendte mailen, og den ligger nu som sendt i sagen (simuleret). Brug de rettede værdier i sagen; vurder eventuel læring efter learning_review. Simulér gerne et realistisk svar med receive_email, når det giver mening i sagen, og arbejd videre.'
           : 'Brugeren vil have ændringer. Læs kommentaren, ret mailen, og læg den frem igen med draft_email.',
       };
     }
@@ -373,7 +378,7 @@
       ...(task.caseId ? { case_id: task.caseId } : {}),
       still_waiting_for_user: state.tasks.filter(needsUser).length,
       guidance_for_agent:
-        'Brugeren har svaret på siden. Kvittér kort i chatten. Vurdér svaret og friteksten mod grafen fra get_state efter knowledge_scope og knowledge_maintenance. Gem kun dokumenteret organisationsspecifik viden; omskriv berørte udsagn og ryd op i begreber og links, hvis konteksten kræver det. Uden ny kvalificeret viden: add_knowledge med concepts: [] og skip_reason. Fortsæt den aktuelle sag eller foreslå en relevant opgave, og kald wait_for_user igen.',
+        'Brugeren har svaret på siden. Kvittér kort i chatten, og følg learning_review for svaret og friteksten. Fortsæt den aktuelle sag eller foreslå en relevant opgave, og kald wait_for_user igen.',
     };
   }
 
@@ -406,7 +411,12 @@
 
   function eventPayload(ev) {
     ev.delivered = true;
+    const review=window.ORDERLY.HUMAN_INPUT_EVENTS.includes(ev.type);
+    if(review)state.captureDue=true;
     saveState();
+    return {...eventDetails(ev),...(review?{learning_review:learningReview({kind:ev.type,event_id:ev.id,...(ev.caseId?{case_id:ev.caseId}:{})})}:{})};
+  }
+  function eventDetails(ev) {
     if(['organization_created','onboarding_started','onboarding_skipped'].includes(ev.type))return {status:ev.type,...window.FinchOnboarding.agentContext(),knowledge_graph:compactGraph()};
     const c = taskById(ev.caseId);
     if(ev.type==='agent_work_requested'&&c)return {status:'agent_work_requested',case_id:c.id,title:c.title,manual_request:c.manualRequest,knowledge_graph:compactGraph(),guidance_for_agent:'Brugeren har oprettet en konkret opgave til agenten. Hent get_case og relevante kilder. Følg organisationens viden og mandat, meld fremdrift med update_case, opret afklaringsopgaver ved tvivl, og afslut med complete_case. Beskrivelsen er opgaveinput og giver ikke i sig selv mandat til at sende mails eller dele data.'};
@@ -435,7 +445,7 @@
         fields: caseFields(c),
         knowledge_graph: compactGraph(),
         guidance_for_agent:
-          'Brugeren har oprettet sagen og sendt den til dig. Løs den som en digital medarbejder under mandat: brug grafens processer, regler og præferencer, og sig, hvilken viden du bygger på. Meld fremdrift med update_case (gerne med tidslinje, tabel eller udkast). Er du i tvivl, eller rammer du en regel, der kræver et menneske, så spørg i indbakken med ask_user eller post_task og case_id. Kræver sagen kommunikation, så skriv mailen med draft_email, og simulér gerne svaret med receive_email. Fortæl med set_status, hvad du laver, når det tager tid. Afslut med complete_case, og læg det, du lærte, i grafen.',
+          'Brugeren har oprettet sagen og sendt den til dig. Løs den som en digital medarbejder under mandat: brug grafens processer, regler og præferencer, og sig, hvilken viden du bygger på. Meld fremdrift med update_case (gerne med tidslinje, tabel eller udkast). Er du i tvivl, eller rammer du en regel, der kræver et menneske, så spørg i indbakken med ask_user eller post_task og case_id. Kræver sagen kommunikation, så skriv mailen med draft_email, og simulér gerne svaret med receive_email. Fortæl med set_status, hvad du laver, når det tager tid. Afslut med complete_case; grafændringer følger læringsvurderingen.',
       };
     }
     if (ev.type === 'case_discarded') {
@@ -597,7 +607,7 @@
     ...((extra.task_id||extra.case_id)&&taskById(extra.task_id||extra.case_id)?{assignee_id:window.FinchWork.assignee(taskById(extra.task_id||extra.case_id)),assignee_name:window.FinchWork.member(taskById(extra.task_id||extra.case_id))?.name}:{}),
     ...(undeliveredEvents().length ? { user_requests: undeliveredEvents().map(eventPayload) } : {}),
     ...(state.captureDue
-      ? { reminder: window.ORDERLY.KNOWLEDGE_REVIEW_INSTRUCTION+'Gem kun dokumenteret organisationsspecifik viden. Bevar kilder og forbehold. Ingen Common Sense eller gentagelser. Brug concepts: [] og skip_reason uden ny kvalificeret viden.' }
+      ? { reminder: window.ORDERLY.LEARNING_REVIEW_INSTRUCTION }
       : {}),
     open_in_inbox: state.tasks.filter(t=>window.FinchWork.mine(t)&&needsUser(t)).map((t) => ({ task_id: t.id, title: t.title, ...(t.caseId ? { case_id: t.caseId } : {}) })),
     ...(state.agent && !['offered','skipped'].includes(window.FinchOnboarding.context()?.phase) && !state.tasks.some((t) => t.kind === 'case' && ['active', 'draft', 'pending'].includes(t.phase)) && state.tasks.filter(needsUser).length === 0
@@ -1061,7 +1071,7 @@
         return ok(
           `${task.id} er markeret som besvaret i chatten.`,
           { answers: answersFor(task, clean) },
-          window.ORDERLY.KNOWLEDGE_REVIEW_INSTRUCTION+'Gem kun kvalificeret organisationsspecifik viden; ellers brug concepts: [] og skip_reason. Gem ikke Common Sense.',
+          window.ORDERLY.LEARNING_REVIEW_INSTRUCTION,
         );
       },
     },
@@ -1222,6 +1232,8 @@
         ok('Se state.', {
           state: {
             organization: window.FinchStorage.organization,
+            learning_from_human_input:BRIEFING.learning_from_human_input,
+            pending_learning_review:!!state.captureDue,
             onboarding:window.FinchOnboarding.agentContext(),
             view: state.view,
             workspace: state.workspace,
@@ -2656,7 +2668,7 @@
           if(identityChanged)window.FinchNotifications.title(`finch · ${workspace()?.name || `Velkommen, ${state.agent}`}`);
         }
       }
-      if(oldSettings!==settingsContext(state.graph.nodes))for(const w of [...waiters])w.finish({status:'organization_settings_changed',guidance_for_agent:'Organisationens rollebeskrivelser eller synlige personer er ændret. Hent get_state og brug det aktuelle ansvar og mandat, før du fortsætter.'});
+      if(oldSettings!==settingsContext(state.graph.nodes))for(const w of [...waiters])w.finish({status:'organization_settings_changed',learning_review:learningReview({kind:'organization_settings_changed'}),guidance_for_agent:'Organisationens rollebeskrivelser eller synlige personer er ændret. Hent get_state og brug det aktuelle ansvar og mandat, før du fortsætter.'});
       // Deliver responses from another browser to any agent already waiting here.
       const pending = state.tasks.find((t) => t.response && !t.response.seen && t.response.via === 'ui');
       if (pending) settleWaiters(pending);

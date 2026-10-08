@@ -13,6 +13,7 @@ window.FinchOnboarding=(()=>{
   function agentContext(){const c=context();if(!c)return null;const {workFocus,...profile}=c.profile;return {
     organization_profile:profile,phase:c.phase,case_id:c.caseId,
     clarification_guidance:window.ORDERLY?.KNOWLEDGE_CLARIFICATION_INSTRUCTION,
+    learning_review_guidance:window.ORDERLY?.LEARNING_REVIEW_INSTRUCTION,
     first_task_idea:host.state().tasks.find(t=>t.id===c.caseId)?.firstTaskRequest?.idea??workFocus??'',
     organization_setup_tasks:host.state().tasks.filter(t=>t.organizationSetup).map(t=>({case_id:t.id,title:t.title,phase:t.phase,progress:t.progress||0,...t.organizationSetup})),
     setup_guidance:'Start med de ventende organization_setup_tasks, også hvis det valgfrie første-opgave-forløb springes over. Læs get_case og følg opgavens instructions og dependsOn. Meld start og konkrete fund med update_case og progress. Gem viden med add_knowledge, rå data/filer med datatools og design med set_branding. Afslut hver opgave med complete_case og et faktuelt resultat; der kræves ikke brugerens godkendelse af disse klargøringsopgaver. Uden hjemmeside bruges kun briefet; opfind ikke rå data eller designkilder. Når klargøringen er færdig, fortsætter du det valgfrie første-opgave-forløb nedenfor.',
