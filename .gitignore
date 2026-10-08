@@ -1,0 +1,17 @@
+node_modules/
+.env
+.env.*
+!.env.example
+.dev-data/
+.sites-runtime/
+dist/
+*.tar.gz
+
+# Managed deployment checkouts have their own repositories.
+/sites/
+.claude/
+.codex/
+.DS_Store
+
+# Generated spreadsheet inspection output; keep the actual workbook.
+*.inspect.ndjson
