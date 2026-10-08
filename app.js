@@ -1376,7 +1376,9 @@
 
   // ---------- Prompt ----------
 
-  function buildPrompt() {
+  function buildPrompt(purpose='work') {
+    const transport=window.FinchConnection.promptInstructions?.()||window.ORDERLY.BRIEFING.tool_transport;
+    const environment=window.FinchConnection.environment?.();
     if(window.FinchInvitation.active)return window.FinchInvitation.prompt();
     if(!window.FinchStorage.ready)return [
       'Åbn Finch i din indbyggede browser, så jeg kan logge ind og oprette min organisation dér.',
@@ -1385,12 +1387,23 @@
       window.ORDERLY.BROWSER_POLICY,
       'Jeg indtaster selv email og engangskode og udfylder organisationsbriefen på siden. Du skal kun åbne siden nu; undersøg ikke virksomheden, stil ikke onboarding-spørgsmål, og start ikke en introduktionsopgave endnu. Jeg giver dig arbejdsprompten fra siden, når organisationen er klar.',
     ].join('\n');
+    if(purpose==='resume')return [
+      `Fortsæt arbejdet i min eksisterende organisation i Finch${environment?.agent?` med ${environment.agent}`:''}.`,
+      '',
+      `Finch-link: ${window.FinchConnection.url(window.FinchStorage.sessionUrl)}`,
+      'Brug den allerede åbne Finch-fane i din indbyggede browser. Hvis den ikke er åben i denne chat, så åbn linket dér og lad siden stå ved siden af chatten.',
+      'Kald start_conversation, læs briefingen, og kald derefter get_state. Brug organisationens gemte profil, vidensgraf, data og opgaver. Genoptag eksisterende arbejde; gentag ikke afsluttet onboarding eller spørgsmål, der allerede er besvaret. Respektér uafsluttede forløb, brugerens fravalg og nødvendige godkendelser.',
+      'Ved login_required: jeg logger selv ind på siden med samme email og organisation. Kald wait_for_login og gentag ved timeout. Forbindelseslinket giver ikke adgang til data.',
+      transport,
+      window.ORDERLY.BROWSER_POLICY,
+      'Vent med wait_for_user, når du har brug for mit svar. Gentag ved timeout, mens denne samtale er aktiv. Stop, når jeg beder dig stoppe, eller det aftalte arbejde er færdigt. Lov ikke automatisk genstart efter en afsluttet tur.',
+    ].join('\n');
     return [
       window.FinchStorage.onboarding?'Hjælp mig med at komme i gang med arbejdet i min organisation i Finch. Organisationsprofilen er allerede udfyldt på siden; brug den som udgangspunkt.':'Hjælp mig med at finde ud af, hvad Finch kunne betyde for min virksomhed.',
       '',
       `1. Åbn ${window.FinchConnection.url(window.FinchStorage.sessionUrl)} i din indbyggede browser (ikke i min egen browser), så jeg kan se siden ved siden af vores chat.`,
       '2. Organisationen og dens brief er allerede oprettet på siden. Siden udstiller WebMCP-tools: kald start_conversation, læs organisationsbriefingen, og fortsæt fra den eksisterende profil og opgaver. Spørg ikke igen om navn, hjemmeside, beskrivelse eller rolle. Ved login_required (fx hvis din browser bruger en anden profil): sig kort, at jeg skal logge ind, og kald wait_for_login. Gentag ved timeout; bed mig ikke skrive "klar". Brug samme email og organisation; forbindelseslinket giver ikke adgang til data. Al interaktion med siden sker gennem dens tools.',
-      "3. Brug browserværktøjets dokumenterede native WebMCP-adgang. I Codex: hent tab.capabilities.get(\"webmcp\"), kald fetchTools(), og brug de præcise registrerede toolnavne. playwright.evaluate er en isoleret læsekontekst og kan ikke se window.webmcp. Hvis native tools mangler, og værktøjet udtrykkeligt tillader JavaScript-broen, kan du bruge await webmcp.call('start_conversation', { agent_name: '<dit navn>' }); webmcp.listTools() viser input. Ved transportafvisning: gengiv den konkrete fejl. Bed kun om adgang ved en tilladelsesfejl; overskredne konfigurationsgrænser kræver en rettelse i Finch. Omgå ikke en afvisning.",
+      '3. '+transport,
       '4. '+window.ORDERLY.BROWSER_POLICY,
       '5. Hold denne samtale aktiv, mens jeg arbejder på siden: vent med wait_for_user, når du har brug for mit valg, og fortsæt på hændelser og svar. Et timeout betyder kun, at ventekaldet udløb: kald igen. Genoptag eksisterende opgaver fra get_state; gentag ikke onboarding. Afslut, hvis jeg beder dig stoppe, eller vores aftalte arbejde er færdigt. Lov ikke automatisk genstart efter en afsluttet tur.',
     ].join('\n');
@@ -1505,7 +1518,10 @@
     return `
       <div class="app-root">
         <header class="topbar" id="topbar"></header>
-        <nav class="rail" id="rail" aria-label="Visning"></nav>
+        <nav class="rail" id="rail" aria-label="Visning">
+          <div id="rail-main" class="rail-main"></div>
+          <div class="rail-footer"><div id="app-profile"></div><div id="rail-settings"></div></div>
+        </nav>
         <div class="workarea">
         <div class="commandbar" id="commandbar" role="toolbar" aria-label="Kommandoer"></div>
         <div class="views">
@@ -1573,15 +1589,16 @@
     const ws = workspace();
     const open = openCount();
     const topbar=document.getElementById('topbar');
-    if(!topbar.querySelector('#app-account'))topbar.innerHTML='<div id="app-organization" class="organization-identity"></div><div id="app-account"></div>';
+    if(!topbar.querySelector('#app-work-prompt'))topbar.innerHTML='<div id="app-organization" class="organization-identity"></div><button type="button" id="app-work-prompt" class="agent-prompt-button" data-action="copy" data-prompt="resume" title="Sæt prompten i en ny chat for at genoptage arbejdet"><span>Kopiér arbejdsprompt</span></button>';
     const identity=document.getElementById('app-organization'),identityHtml=organizationIdentity();
     updateHtml(identity,identityHtml);
-    window.FinchStorage.renderControls(document.getElementById('app-account'));
+    window.FinchStorage.renderControls(document.getElementById('app-profile'),'profile');
     const railItem = (view, label, icon, count) =>
       `<button class="${state.view === view ? 'is-current' : ''}" data-action="view" data-view="${view}" data-label="${label}" title="${label}" aria-label="${label}${count ? ` (${count})` : ''}"${
         state.view === view ? ' aria-current="page"' : ''
       }>${icon}${count ? `<b>${count}</b>` : ''}</button>`;
-    updateHtml(document.getElementById('rail'),railItem('inbox', 'Indbakke', ICONS.inbox, open) + railItem('agent','Agent',ICONS.agent,state.tasks.filter(t=>phaseOf(t)==='active').length) + railItem('organization','Organisationen',ICONS.organization,0) + railItem('graph', 'Viden', ICONS.graph, state.graph.nodes.length) + railItem('data', 'Tabeller', ICONS.data, window.FinchData.tableCount) + railItem('files', 'Filer', ICONS.files, window.FinchData.fileCount) + window.FinchPages.rail()+window.FinchPages.newPageButton()+window.FinchSettings.rail());
+    updateHtml(document.getElementById('rail-main'),railItem('inbox', 'Indbakke', ICONS.inbox, open) + railItem('agent','Agent',ICONS.agent,state.tasks.filter(t=>phaseOf(t)==='active').length) + railItem('organization','Organisationen',ICONS.organization,0) + railItem('graph', 'Viden', ICONS.graph, state.graph.nodes.length) + railItem('data', 'Tabeller', ICONS.data, window.FinchData.tableCount) + railItem('files', 'Filer', ICONS.files, window.FinchData.fileCount) + window.FinchPages.rail()+window.FinchPages.newPageButton());
+    updateHtml(document.getElementById('rail-settings'),window.FinchSettings.rail());
     updateHtml(document.getElementById('organization-work-nav'),window.FinchWork.nav());
     renderAgentStatus();
     const banner = document.getElementById('waiting-banner');
@@ -1627,13 +1644,15 @@
 
   function renderAgentStatus() {
     window.FinchOnboarding.updateActivity();
-    const statusBox=document.getElementById('agent-status');if(statusBox){statusBox.hidden=state.view==='pages'&&state.pages.some(p=>p.id===state.pageId&&p.status==='ready');if(statusBox.hidden)return;}
-    if (!state.agent) return;
+    const box=document.getElementById('agent-status');
+    if(!box||mode!=='app')return;
     const p = agentPhase();
+    // Only toggle a class: heartbeats never replace the copy button or profile menu.
+    document.getElementById('app-work-prompt')?.classList.toggle('is-attention',!activity.lastCall||['idle','unheard'].includes(p?.kind));
+    box.hidden=!state.agent||state.view==='pages'&&state.pages.some(p=>p.id===state.pageId&&p.status==='ready');
+    if(box.hidden)return;
     const copy = phaseCopy(p);
     for (const el of document.querySelectorAll('[data-live=phase]')){const text=`${copy.title}. ${copy.detail}`;if(el.textContent!==text)el.textContent=text;}
-    const box = document.getElementById('agent-status');
-    if (!box || mode !== 'app') return;
     const how = webmcp.available ? `WebMCP · ${webmcp.registered} tools` : 'WebMCP via JS-bro (window.webmcp)';
     const icon = copy.busy ? '<span class="dots" aria-hidden="true"><i>.</i><i>.</i><i>.</i></span>' : '<i class="as-dot"></i>';
     updateHtml(box,`<div class="as-card is-${p?.kind || 'none'}" title="${esc(how)}">${icon}<div><strong>${esc(copy.title)}</strong><small>${esc(copy.detail)}</small></div></div>`);
@@ -2415,7 +2434,7 @@
 
     if (action === 'copy') {
       const label=el.firstElementChild.textContent;
-      const text = buildPrompt();
+      const text = buildPrompt(el.dataset.prompt==='resume'?'resume':'work');
       try {
         await navigator.clipboard.writeText(text);
       } catch {

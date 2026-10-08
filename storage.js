@@ -178,18 +178,21 @@ window.FinchStorage = (() => {
         ${error.code === 'revision_conflict' ? '<button data-account="export">Gem mine ændringer som fil</button><button data-account="reload">Hent serverens version</button>' : '<button data-account="retry">Prøv igen</button>'}`;
     } else { el.classList.remove('has-error');const text=saved!==dirty||saving?'Gemmer…':'Gemt';if(el.textContent!==text)el.textContent=text; }
   }
-  function controls() {
+  function controls(variant='organization') {
     if (!user) return '';
-    return `<div class="account-controls"><details class="organization-picker"><summary aria-label="Skift organisation">Organisationer<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></summary><div class="organization-menu">
+    const profile=variant==='profile';
+    const summary=profile?'<summary role="button" aria-label="Profil" title="Profil" data-label="Profil"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/></svg></summary>':'<summary aria-label="Skift organisation">Organisationer<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></summary>';
+    return `<div class="account-controls"><details class="organization-picker${profile?' profile-picker':''}">${summary}<div class="organization-menu">
+      ${profile?`<strong class="profile-menu-title">Profil</strong><small>${escape(user.email)}</small><span class="profile-menu-section">Organisationer</span>`:''}
       ${organizations.map((o) => `<button type="button" data-account="select" data-org="${escape(o.id)}" ${o.id === organization?.id ? 'aria-current="true"' : ''}>${escape(o.name)}</button>`).join('')}
       <button type="button" data-account="create">+ Ny organisation</button>
       ${invitations.length?`<button type="button" data-account="invitations">Invitationer (${invitations.length})</button>`:''}
       ${legacySessions().length ? '<button type="button" data-account="import-menu">Importér gammel session</button>' : ''}
-      <small>${escape(user.email)}</small><button type="button" data-account="logout">Log ud</button></div></details></div>`;
+      ${profile?'':`<small>${escape(user.email)}</small>`}<button type="button" data-account="logout">Log ud</button></div></details></div>`;
   }
-  function renderControls(container) {
+  function renderControls(container,variant='organization') {
     if(!container)return;
-    const markup=controls(),scope=`${user?.id || ''}:${organization?.id || ''}`,previous=controlRenders.get(container);
+    const markup=controls(variant),scope=`${user?.id || ''}:${organization?.id || ''}`,previous=controlRenders.get(container);
     // A save or poll must not replace the menu the user is interacting with.
     if(previous?.markup===markup&&previous.scope===scope)return;
     const picker=container.querySelector('.organization-picker');
@@ -243,6 +246,8 @@ window.FinchStorage = (() => {
     } catch (e) { notice(e.message); } finally { submit.disabled = false; }
   });
   document.addEventListener('click', async (event) => {
+    const profile=document.querySelector?.('.profile-picker[open]');
+    if(profile&&!profile.contains(event.target))profile.open=false;
     const button = event.target.closest('[data-account]'); if (!button) return;
     const action = button.dataset.account;
     if(window.FinchConnection&&!window.FinchConnection.loginAllowed)return;
@@ -278,6 +283,11 @@ window.FinchStorage = (() => {
       }
     } catch (e) { if (gate().hidden) { error = e; renderSaveStatus(); } else notice(e.message); }
     finally {if(button.isConnected)button.disabled=false;}
+  });
+  document.addEventListener('keydown',event=>{
+    if(event.key!=='Escape')return;
+    const profile=document.querySelector?.('.profile-picker[open]');
+    if(profile){profile.open=false;profile.querySelector('summary')?.focus({preventScroll:true});}
   });
   window.addEventListener('beforeunload', (event) => {
     if (dirty !== saved) { event.preventDefault(); event.returnValue = ''; }

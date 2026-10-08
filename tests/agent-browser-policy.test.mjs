@@ -15,13 +15,22 @@ test('briefing distinguishes background work from control of the human browser',
 
 test('both connection and work prompts contain the same browser policy',()=>{
   const window={ORDERLY:content(),FinchInvitation:{active:false},FinchStorage:{ready:false},FinchConnection:{url:()=> 'https://finch.test/'}};
-  const source=app.slice(app.indexOf('  function buildPrompt()'),app.indexOf('  // ---------- Rendering ----------'));
+  const source=app.slice(app.indexOf('  function buildPrompt('),app.indexOf('  // ---------- Rendering ----------'));
   const prompt=vm.runInNewContext(source+';buildPrompt',{window});
   assert.ok(prompt().includes(window.ORDERLY.BROWSER_POLICY));
   window.FinchStorage.ready=true;
   assert.ok(prompt().includes(window.ORDERLY.BROWSER_POLICY));
   assert.doesNotMatch(prompt(),/Du har mandat til at bygge siden undervejs/);
   assert.doesNotMatch(prompt(),/page\.evaluate|Playwright/);
+});
+
+test('resume prompts reuse the saved organization and current environment without repeating completed onboarding',()=>{
+  const window={ORDERLY:content(),FinchInvitation:{active:false},FinchStorage:{ready:true,sessionUrl:'https://finch.test/?org=saved'},FinchConnection:{url:base=>base,environment:()=>({agent:'Claude'}),promptInstructions:()=> 'Claude: use its documented normal page context.'}};
+  const source=app.slice(app.indexOf('  function buildPrompt('),app.indexOf('  // ---------- Rendering ----------'));
+  const prompt=vm.runInNewContext(source+';buildPrompt',{window});const result=prompt('resume');
+  assert.ok(result.includes('https://finch.test/?org=saved'));assert.ok(result.includes('med Claude'));assert.ok(result.includes('Claude: use its documented normal page context.'));assert.ok(result.includes('start_conversation'));assert.ok(result.includes('get_state'));assert.ok(result.includes('gentag ikke afsluttet onboarding'));assert.ok(result.includes(window.ORDERLY.BROWSER_POLICY));
+  window.FinchStorage.sessionUrl='https://finch.test/?org=other';assert.ok(prompt('resume').includes('org=other'));
+  window.FinchStorage.ready=false;assert.ok(prompt('resume').includes('Du skal kun åbne siden nu'));
 });
 
 test('tool discovery and native calls are explicitly allowed while host permission denials stay binding',()=>{
