@@ -36,7 +36,8 @@ test('native registration and the supported JS bridge call the same tools and re
   const document={modelContext:{registerTool:(tool)=>registered.push(tool)},querySelector(){throw new Error('UI access forbidden');}};
   const policyWrapper=app.slice(app.indexOf('  async function runTool('),app.indexOf('  async function executeTool('));
   const adapters=app.slice(app.indexOf('  // WebMCP-tools returnerer'),app.indexOf('  // ---------- Prompt ----------'));
-  const sandbox={window,document,navigator:{},TOOLS,AbortController,structuredClone,console,num:(v,fallback)=>typeof v==='number'?v:fallback,
+  vm.runInNewContext(readFileSync('tool-catalog.js','utf8'),{window,structuredClone,TextEncoder});
+  const sandbox={window,document,navigator:{},TOOLS,toolCatalog:window.FinchToolCatalog.create(TOOLS),AbortController,structuredClone,console,num:(v,fallback)=>typeof v==='number'?v:fallback,
     executeTool:async(tool,input)=>{if(tool.name==='post_task')value=input.title;return {status:'ok',value};}};
   const register=vm.runInNewContext(policyWrapper+adapters+';registerWebMCP',sandbox);
   register();assert.deepEqual(registered.map(t=>t.name),['post_task','get_state']);
@@ -44,6 +45,15 @@ test('native registration and the supported JS bridge call the same tools and re
   assert.equal((await window.webmcp.call('get_state',{})).value,'native work');
   const listed=window.webmcp.listTools();assert.equal(listed.length,2);assert.equal(value,'native work');
   await window.webmcp.call('post_task',{title:'bridge work'});assert.equal(JSON.parse(await registered[1].execute({})).value,'bridge work');
+});
+
+test('async registration counts only accepted tools and reports rejected registrations',async()=>{
+  const warnings=[],TOOLS=[{name:'accepted',description:'Read',inputSchema:{type:'object'}},{name:'rejected',description:'Read',inputSchema:{type:'object'}}];
+  const window={};vm.runInNewContext(readFileSync('tool-catalog.js','utf8'),{window,structuredClone,TextEncoder});
+  const source=app.slice(app.indexOf('  // WebMCP-tools returnerer'),app.indexOf('  // JS-bro:'));
+  const api=vm.runInNewContext(source+';({registerWebMCP,webmcp})',{TOOLS,toolCatalog:window.FinchToolCatalog.create(TOOLS),document:{modelContext:{registerTool:tool=>tool.name==='accepted'?Promise.resolve():Promise.reject(new Error('registration rejected'))}},navigator:{},AbortController,console:{warn:(...args)=>warnings.push(args)},runTool:async()=>({status:'ok'})});
+  api.registerWebMCP();assert.equal(api.webmcp.registered,0);
+  await new Promise(resolve=>setImmediate(resolve));assert.equal(api.webmcp.registered,1);assert.equal(warnings.length,1);assert.equal(warnings[0][1],'rejected');
 });
 
 test('invitation prompts protect the recipient browser too',()=>{

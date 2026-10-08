@@ -1257,6 +1257,14 @@
   TOOLS.push(...window.FinchData.definitions.map((tool) => ({ ...tool, run: (input) => window.FinchData.tool(tool.name, input) })));
   TOOLS.push(...window.FinchPages.definitions.map((tool) => ({ ...tool, run: (input) => window.FinchPages.tool(tool.name, input) })));
   TOOLS.push(...window.FinchBranding.definitions.map((tool) => ({ ...tool, run: (input) => window.FinchBranding.tool(tool.name, input) })));
+  TOOLS.push({
+    name:'get_tool_help',
+    description:'Hent fuld dokumentation og feltskema for ét Finch-tool. Brug før komplekse graf-, side-, branding- eller dataændringer. Komponentkataloget findes også i start_conversation.briefing.components.',
+    inputSchema:{type:'object',properties:{tool_name:S(64,'Toolnavnet fra registreringen.')},required:['tool_name']},
+    annotations:{readOnlyHint:true},
+    run:({tool_name})=>{const tool=toolCatalog.help(str(tool_name,64));return tool?{status:'ok',tool}:error('Toolnavnet findes ikke. Brug et navn fra registreringen.');},
+  });
+  const toolCatalog=window.FinchToolCatalog.create(TOOLS);
 
   // Hvad agenten laver: sidste tool-kald og dens egen statustekst. Bruges til at forklare ventetid.
   const activity = { lastCall: 0, text: '', textAt: 0 };
@@ -1304,10 +1312,9 @@
   }
 
   // WebMCP-tools returnerer en string.
-  const webmcpTools = TOOLS.map((tool) => {
-    const { run, ...def } = tool;
-    return { ...def, execute: async (input, client) => JSON.stringify(await runTool(tool, input, client?.signal), null, 2) };
-  });
+  const webmcpTools = toolCatalog.definitions.map(def=>({...def,
+    execute:async(input,client)=>JSON.stringify(await runTool(TOOLS.find(t=>t.name===def.name),input,client?.signal),null,2),
+  }));
 
   const webmcp = { available: false, registered: 0 };
 
@@ -1320,8 +1327,8 @@
       for (const tool of webmcpTools) {
         try {
           const r = mc.registerTool(tool, { signal: controller.signal });
-          if (r && typeof r.then === 'function') r.catch((e) => console.warn('registerTool fejlede', tool.name, e));
-          webmcp.registered++;
+          if (r && typeof r.then === 'function') r.then(()=>webmcp.registered++).catch((e) => console.warn('registerTool fejlede', tool.name, e));
+          else webmcp.registered++;
         } catch (e) {
           console.warn('registerTool fejlede', tool.name, e);
         }
@@ -1329,8 +1336,9 @@
     } else if (typeof mc.provideContext === 'function') {
       // Ældre API-form fra 2025/tidlig 2026.
       try {
-        mc.provideContext({ tools: webmcpTools });
-        webmcp.registered = webmcpTools.length;
+        const r=mc.provideContext({ tools: webmcpTools });
+        if(r&&typeof r.then==='function')r.then(()=>webmcp.registered=webmcpTools.length).catch(e=>console.warn('provideContext fejlede',e));
+        else webmcp.registered = webmcpTools.length;
       } catch (e) {
         console.warn('provideContext fejlede', e);
       }
@@ -1340,7 +1348,7 @@
   // JS-bro: de samme tools for agenter, hvis browser ikke har document.modelContext (fx Claude).
   // Agenten kan køre JavaScript på siden og kalde: await webmcp.call('start_conversation', { agent_name: 'Claude' })
   window.webmcp = Object.freeze({
-    listTools: () => TOOLS.map(({ run, ...def }) => structuredClone(def)),
+    listTools: () => structuredClone(toolCatalog.definitions),
     call: async (name, input) => {
       const tool = TOOLS.find((t) => t.name === name);
       if (!tool) return { status: 'error', error: `Ukendt tool "${name}". Tilgængelige: ${TOOLS.map((t) => t.name).join(', ')}.` };
@@ -1370,7 +1378,7 @@
       '',
       `1. Åbn ${window.FinchConnection.url(window.FinchStorage.sessionUrl)} i din indbyggede browser (ikke i min egen browser), så jeg kan se siden ved siden af vores chat.`,
       '2. Organisationen og dens brief er allerede oprettet på siden. Siden udstiller WebMCP-tools: kald start_conversation, læs organisationsbriefingen, og fortsæt fra den eksisterende profil og opgaver. Spørg ikke igen om navn, hjemmeside, beskrivelse eller rolle. Ved login_required (fx hvis din browser bruger en anden profil): sig kort, at jeg skal logge ind, og kald wait_for_login. Gentag ved timeout; bed mig ikke skrive "klar". Brug samme email og organisation; forbindelseslinket giver ikke adgang til data. Al interaktion med siden sker gennem dens tools.',
-      "3. Brug browserværktøjets dokumenterede native WebMCP-adgang. Hvis native tools mangler, og værktøjet udtrykkeligt tillader JavaScript-broen, kan du bruge await webmcp.call('start_conversation', { agent_name: '<dit navn>' }); webmcp.listTools() viser input. Ved transportafvisning: gengiv den konkrete fejl, og bed om den nødvendige adgang. Omgå ikke en afvisning.",
+      "3. Brug browserværktøjets dokumenterede native WebMCP-adgang. I Codex: hent tab.capabilities.get(\"webmcp\"), kald fetchTools(), og brug de præcise registrerede toolnavne. playwright.evaluate er en isoleret læsekontekst og kan ikke se window.webmcp. Hvis native tools mangler, og værktøjet udtrykkeligt tillader JavaScript-broen, kan du bruge await webmcp.call('start_conversation', { agent_name: '<dit navn>' }); webmcp.listTools() viser input. Ved transportafvisning: gengiv den konkrete fejl. Bed kun om adgang ved en tilladelsesfejl; overskredne konfigurationsgrænser kræver en rettelse i Finch. Omgå ikke en afvisning.",
       '4. '+window.ORDERLY.BROWSER_POLICY,
       '5. Hold denne samtale aktiv, mens jeg arbejder på siden: vent med wait_for_user, når du har brug for mit valg, og fortsæt på hændelser og svar. Et timeout betyder kun, at ventekaldet udløb: kald igen. Genoptag eksisterende opgaver fra get_state; gentag ikke onboarding. Afslut, hvis jeg beder dig stoppe, eller vores aftalte arbejde er færdigt. Lov ikke automatisk genstart efter en afsluttet tur.',
     ].join('\n');

@@ -4,7 +4,7 @@ import { gzipSync } from 'node:zlib';
 
 const root = process.cwd();
 const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs':'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.woff2': 'font/woff2', '.ttf': 'font/ttf' };
-const files = ['index.html', 'app.js', 'storage.js', 'file-model.js', 'file-media.js', 'list-ui.js','grid-ui.js','table-editor.js','data.js','data-controls.js', 'pages.js', 'brand-model.js', 'branding.js', 'settings.js','settings-grids.js', 'work.js', 'notifications.js', 'notification-sw.js', 'onboarding.js', 'content.js','site-config.js','connection.js','invitations.js', 'styles.css'];
+const files = ['index.html', 'app.js', 'storage.js', 'file-model.js', 'file-media.js', 'list-ui.js','grid-ui.js','table-editor.js','data.js','data-controls.js', 'pages.js', 'brand-model.js', 'branding.js', 'settings.js','settings-grids.js', 'work.js', 'notifications.js', 'notification-sw.js', 'onboarding.js', 'content.js','tool-catalog.js','site-config.js','connection.js','invitations.js', 'styles.css'];
 async function collect(directory) {
   for (const entry of await readdir(path.join(root, directory), { withFileTypes: true })) {
     const filename = `${directory}/${entry.name}`;
