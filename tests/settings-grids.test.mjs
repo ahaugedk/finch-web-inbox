@@ -19,3 +19,28 @@ test('sender CRUD preserves mail enablement and unrelated sender settings',()=>{
 test('role grid rows show assignment counts and role updates preserve stale versions for server conflict checks',()=>{
  const api=setup();assert.equal(api.rows('roles')[0].memberCount,1);const op=api.operations('roles',{mode:'item',id:'r1'},data({__revision:0,title:'Drift',description:'Opdateret ansvar'}))[0];assert.equal(op.data.revision,0);assert.equal(op.method,'PUT');assert.equal(op.path,'/roles/r1');
 });
+function interactive(){
+ const current=structuredClone(team),listeners={},toolbar={innerHTML:''},classes=new Set(),collection={classList:{contains:name=>classes.has(name),toggle:(name,on)=>on?classes.add(name):classes.delete(name)}},box={hidden:true,innerHTML:'',closest:()=>collection,replaceChildren(){this.innerHTML='';}};
+ const window={FinchList:{create:()=>'<button>Nyt medlem</button>'}};
+ const document={addEventListener:(name,fn)=>{listeners[name]=fn;},querySelector:selector=>selector==='[data-grid-context="members"]'?box:selector==='[data-grid-toolbar="members"]'?toolbar:null};
+ vm.runInNewContext(readFileSync('settings-grids.js','utf8'),{window,document,FormData,Set,Map});
+ const api=window.FinchSettingsGrids;api.configure({team:()=>current,statuses:{active:'Medlem',invited:'Inviteret'},busy:()=>false});
+ const click=(dataset,row=false)=>listeners.click({target:{closest:selector=>selector===(row?'[data-grid-open]':'[data-grid-action]')?{dataset}:null}});
+ return {api,current,click,toolbar,box};
+}
+test('opening a member selects it and enables editing and deletion without a separate checkbox click',()=>{
+ const f=interactive();f.click({gridOpen:'members',gridId:'m1'},true);
+ assert.equal(f.box.hidden,false);assert.match(f.box.innerHTML,/Gem ændringer/);assert.match(f.box.innerHTML,/Slet medlem/);
+ assert.match(f.toolbar.innerHTML,/data-grid-action="edit" data-grid-kind="members">Redigér/);
+ assert.match(f.toolbar.innerHTML,/data-grid-action="delete" data-grid-kind="members">Slet valgte/);
+ f.click({gridAction:'delete-item',gridKind:'members',gridId:'m1'});
+ assert.match(f.box.innerHTML,/Bekræft sletning/);assert.match(f.box.innerHTML,/<li>Maja<\/li>/);assert.ok(!f.box.innerHTML.includes('<li>Bo</li>'));
+});
+test('the owner can be edited but not deleted; removed members disappear and cannot keep selection actions enabled',()=>{
+ const f=interactive();f.current.members[0].isOwner=true;f.click({gridOpen:'members',gridId:'m1'},true);
+ assert.match(f.box.innerHTML,/Gem ændringer/);assert.ok(!f.box.innerHTML.includes('Slet medlem'));
+ assert.match(f.toolbar.innerHTML,/data-grid-action="delete" data-grid-kind="members" disabled/);
+ f.click({gridAction:'delete-item',gridKind:'members',gridId:'m1'});assert.ok(!f.box.innerHTML.includes('Bekræft sletning'));
+ f.current.members[0].status='revoked';assert.equal(f.api.rows('members').some(m=>m.id==='m1'),false);
+ assert.match(f.api.html('members'),/data-grid-action="edit" data-grid-kind="members" disabled/);
+});

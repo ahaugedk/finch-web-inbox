@@ -18,7 +18,7 @@ export async function pendingInvitations(db,user,now) {
 }
 export async function organizationTeam(db,org,userId,now) {
   const owner=await db.first('SELECT email FROM users WHERE id=?',org.owner_id);
-  const rows=await db.all('SELECT * FROM organization_members WHERE organization_id=? ORDER BY created_at',org.id);
+  const rows=await db.all("SELECT * FROM organization_members WHERE organization_id=? AND status!='revoked' ORDER BY created_at",org.id);
   const roles=await db.all('SELECT id,title,description,revision FROM organization_roles WHERE organization_id=? AND deleted_at IS NULL ORDER BY title',org.id);
   const members=rows.map(m=>({id:m.id,email:m.email,name:m.display_name,roleId:m.role_id,inGraph:!!m.include_in_graph,
     status:m.status==='invited' && m.expires_at<=now?'expired':m.status,expiresAt:m.expires_at,revision:m.revision,isOwner:m.user_id===org.owner_id}));
@@ -176,6 +176,7 @@ export async function handleTeamApi(request,env,context) {
     }
     let m=route[3]==='owner'?await db.first('SELECT * FROM organization_members WHERE organization_id=? AND user_id=?',org.id,org.owner_id):await db.first('SELECT * FROM organization_members WHERE id=? AND organization_id=?',route[3],org.id);
     if(!m && route[3]!=='owner')fail(404,'member_not_found','Medlemmet findes ikke.');
+    if(m?.status==='revoked')fail(404,'member_not_found','Medlemmet er fjernet fra organisationen.');
     if(input.revision!==(m?.revision || 0))fail(409,'team_conflict','Medlemmet er ændret. Hent indstillingerne igen.');
     if(request.method==='PUT') {
       if(typeof input.inGraph!=='boolean')fail(400,'invalid_graph_choice','Vælg, om personen skal være i grafen.');

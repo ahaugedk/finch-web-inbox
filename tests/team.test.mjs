@@ -151,3 +151,23 @@ test('owner profile can be added to the graph, cannot lose ownership, and foreig
   const role=settings.data.roles[0];assert.equal((await t.call(`${t.settings}/roles/${role.id}`,{method:'DELETE',cookie:t.owner,data:{revision:role.revision}})).status,200);
   const after=await t.call(t.settings,{cookie:t.owner});assert.equal(after.data.members.find(m=>m.isOwner).roleId,null);
 });
+test('member edits persist, deletion removes access and list entries, and reinvitation requires fresh acceptance',async()=>{
+ const t=await setup();const invited=await t.invite();const memberId=invited.data.id,route=t.settings+'/members/'+memberId;
+ await t.call(`/api/invitations/${memberId}/accept`,{method:'POST',cookie:t.member,data:{}});
+ let m=(await t.call(t.settings,{cookie:t.owner})).data.members.find(m=>m.id===memberId);
+ const before=m.revision;
+ assert.equal((await t.call(route,{method:'PUT',cookie:t.member,data:{revision:before,name:'Forged',roleId:null,inGraph:false}})).status,403);
+ assert.equal((await t.call(route,{method:'PUT',cookie:t.owner,data:{revision:before,name:'Maja Opdateret',roleId:null,inGraph:true}})).status,200);
+ m=(await t.call(t.settings,{cookie:t.owner})).data.members.find(m=>m.id===memberId);assert.equal(m.name,'Maja Opdateret');assert.equal(m.roleId,null);assert.equal(m.inGraph,true);assert.equal(m.email,'member@example.test');
+ assert.equal((await t.call(route,{method:'PUT',cookie:t.owner,data:{revision:before,name:'Stale',roleId:null,inGraph:false}})).status,409);
+ assert.equal((await t.call(route,{method:'DELETE',cookie:t.owner,data:{revision:before}})).status,409);
+ assert.equal((await t.call(route,{method:'DELETE',cookie:t.owner,data:{revision:m.revision}})).status,200);
+ assert.equal((await t.call(t.settings,{cookie:t.owner})).data.members.some(m=>m.id===memberId),false);
+ assert.equal((await t.call(`/api/organizations/${t.orgId}`,{cookie:t.member})).status,404);
+ const stored=t.DB.sqlite.prepare('SELECT * FROM organization_members WHERE id=?').get(memberId);assert.equal(stored.status,'revoked');assert.equal(stored.include_in_graph,0);
+ assert.equal((await t.call(route,{method:'PUT',cookie:t.owner,data:{revision:stored.revision,name:'Removed',roleId:null,inGraph:true}})).status,404);
+ const fresh=await t.invite(false);assert.equal(fresh.status,201);assert.equal(fresh.data.id,memberId);
+ assert.equal((await t.call(`/api/organizations/${t.orgId}`,{cookie:t.member})).status,404);
+ assert.equal((await t.call(`/api/invitations/${memberId}/accept`,{method:'POST',cookie:t.member,data:{}})).status,200);
+ assert.equal((await t.call(`/api/organizations/${t.orgId}`,{cookie:t.member})).status,200);
+});

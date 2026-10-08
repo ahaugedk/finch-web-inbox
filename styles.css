@@ -263,6 +263,8 @@ body[data-mode='app'] { overflow: hidden; }
 .settings-context dt { color: var(--muted); font-size: 12px; margin-top: 14px; }
 .settings-context .link { width: fit-content; font-size: 13px; }
 .settings-context .settings-form label { font-size: 14px; }
+.settings-context-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.settings-context-actions .btn { padding: 6px 10px; font-size: 13px; }
 .settings-context .settings-form input, .settings-context .settings-form select, .settings-context .settings-form textarea { min-width: 0; }
 .settings-context ul { padding-left: 20px; margin: 18px 0; font-size: 14px; line-height: 1.6; }
 .settings-role-description { white-space: pre-wrap; }

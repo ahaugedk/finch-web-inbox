@@ -250,3 +250,7 @@ Gridhandlinger bruger de eksisterende versionskontrollerede settings-endpoints. 
 ## GitHub og lokale checkouts
 
 GitHub-repositoryet er `git@github.com:ahaugedk/finch-web-inbox.git`. Projektroden indeholder den kanoniske kildekode og `.openai/hosting.json` med det eksisterende Site-id og de logiske databindinger. Efter clone køres `npm ci`, `npm test` og `npm run build`. Det separate Sites-checkout i `sites/orderly-agent` er ikke en del af GitHub-repositoryet og klargøres fra det eksisterende Site ved udgivelse. `publish.sh` accepterer også manifestet i projektroden. Dependencies, build-output, lokale organisationsdata og hemmeligheder er udeladt fra Git.
+
+### Redigering og sletning af medlemmer
+
+Under Indstillinger → Medlemmer og invitationer vælger et klik på medlemmet også rækken og aktiverer handlingerne. Administratoren kan gemme navn, arbejdsrolle og synlighed i grafen i detaljepanelet samt vælge Slet medlem med en bekræftelse. Flere medlemmer kan vælges med afkrydsning til fælles redigering eller Slet valgte. Slettede medlemmer forsvinder fra medlemslisten og mister adgang; opgaver og historik bevares, og administratoren overtager arbejde uden en aktiv modtager. En ny invitation til samme email kræver ny accept. Organisationens ejer kan redigeres, men ikke slettes.

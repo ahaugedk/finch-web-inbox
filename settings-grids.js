@@ -3,11 +3,11 @@ window.FinchSettingsGrids=(()=>{
   let host,mailView='senders';const tables=new Map(),readyTables=new WeakSet(),selections=new Map(),editors=new Map(),drafts=new Map();
   const labels={members:'Medlemmer og invitationer',roles:'Arbejdsroller',senders:'Ekstra afsendere',mailLog:'Seneste modtagelser'};
   const key=(kind,id)=>kind+':'+id;
-  const selected=kind=>selections.get(kind)||[];
+  const selected=kind=>(selections.get(kind)||[]).filter(id=>rows(kind).some(row=>row.id===id));
   const owner=()=>!!host.team()?.canManage;
   const roleName=id=>host.team()?.roles.find(r=>r.id===id)?.title||'Ikke angivet';
   function rows(kind){const t=host.team();if(!t)return [];
-    if(kind==='members')return t.members.map(m=>({...m,displayName:m.name||m.email,roleTitle:roleName(m.roleId),statusText:m.isOwner?'Ejer':host.statuses[m.status]||m.status,graphText:m.inGraph?'Ja':'Nej'}));
+    if(kind==='members')return t.members.filter(m=>m.status!=='revoked').map(m=>({...m,displayName:m.name||m.email,roleTitle:roleName(m.roleId),statusText:m.isOwner?'Ejer':host.statuses[m.status]||m.status,graphText:m.inGraph?'Ja':'Nej'}));
     if(kind==='roles')return t.roles.map(r=>({...r,memberCount:t.members.filter(m=>m.roleId===r.id&&m.status!=='revoked').length}));
     if(kind==='senders')return (t.inbound?.allowedSenders||[]).map(email=>({id:email,email}));
     return (t.inbound?.recent||[]).map(m=>({...m,time:new Date(m.createdAt).toLocaleString('da-DK'),statusText:({accepted:'Oprettet',rejected:'Afvist',failed:'Afventer genforsøg',processing:'Modtager'})[m.status]||m.status}));
@@ -16,7 +16,7 @@ window.FinchSettingsGrids=(()=>{
     const button=(action,label,disabled=false,primary=false)=>`<button type="button" class="${primary?'btn':'btn btn-ghost'}" data-grid-action="${action}" data-grid-kind="${kind}"${disabled||b?' disabled':''}>${label}</button>`;
     const noun={members:['medlem','medlemmer'],roles:['rolle','roller'],senders:['afsender','afsendere'],mailLog:['modtagelse','modtagelser']}[kind],count=rows(kind).length;
     return `<div class="settings-grid-toolbar"><div class="settings-grid-actions">${owner()&&kind!=='mailLog'?
-      (button('edit','Redigér',!n||(kind!=='members'&&n!==1))+button('delete','Fjern valgte',!n||(kind==='members'&&chosen.some(m=>m.isOwner||m.status==='revoked'))))+
+      (button('edit','Redigér',!n||(kind!=='members'&&n!==1))+button('delete','Slet valgte',!n||(kind==='members'&&chosen.some(m=>m.isOwner||m.status==='revoked'))))+
       (kind==='members'?button('resend','Gensend invitation',!n||chosen.some(m=>m.isOwner||['active','accepted','revoked'].includes(m.status))):''):''}
       ${button('refresh','Genindlæs',false)}${n?button('clear','Ryd valg',false):''}</div><span class="settings-grid-selection" role="status">${n?`${n} valgt`:`${count} ${noun[count===1?0:1]}`}</span>${owner()&&['members','roles','senders'].includes(kind)?window.FinchList.create(kind==='members'?'Nyt medlem':kind==='roles'?'Ny rolle':'Ny afsender',{'data-grid-action':'create','data-grid-kind':kind}):''}</div>`;
   }
@@ -52,10 +52,10 @@ window.FinchSettingsGrids=(()=>{
     if(!visible){box.replaceChildren();return;}
     const mode=editor.mode,targets=editor.targets||[],d=drafts.get(key(kind,mode==='item'?editor.id:mode))||item||{};
     const close='<button type="button" class="link" data-grid-action="close" data-grid-kind="'+kind+'">Luk detaljer</button>';
-    const heading=mode==='delete'?`Fjern ${targets.length} ${kind==='members'?'medlemmer/invitationer':kind==='roles'?'roller':'afsendere'}`:mode==='bulk'?`Redigér ${targets.length} medlemmer`:mode==='create'?kind==='members'?'Invitér kollega':kind==='roles'?'Ny arbejdsrolle':'Ny afsender':item.displayName||item.title||item.subject||item.email||'Mail uden emne';
+    const heading=mode==='delete'?`Slet ${targets.length===1?(kind==='members'?'medlem':kind==='roles'?'rolle':'afsender'):`${targets.length} ${kind==='members'?'medlemmer/invitationer':kind==='roles'?'roller':'afsendere'}`}`:mode==='bulk'?`Redigér ${targets.length} medlemmer`:mode==='create'?kind==='members'?'Invitér kollega':kind==='roles'?'Ny arbejdsrolle':'Ny afsender':item.displayName||item.title||item.subject||item.email||'Mail uden emne';
     const formStart=`<form class="settings-form settings-grid-form" data-grid-form="${kind}" data-grid-mode="${mode}" data-grid-id="${esc(editor.id||'')}" data-revision="${d.revision??item?.revision??0}">`,save='<button class="btn" type="submit">'+(mode==='create'&&kind==='members'?'Send invitation':mode==='create'?'Opret':'Gem ændringer')+'</button>';
     let body;
-    if(mode==='delete')body=`<p>${kind==='members'?'Adgangen fjernes for aktive medlemmer; ventende invitationer annulleres.':kind==='roles'?'Rollerne fjernes også fra de medlemmer, som bruger dem.':'De valgte afsenderadresser fjernes fra tilladelseslisten.'}</p><ul>${targets.map(r=>`<li>${esc(r.displayName||r.title||r.email)}</li>`).join('')}</ul><button type="button" class="btn" data-grid-action="confirm-delete" data-grid-kind="${kind}">Bekræft fjernelse</button>`;
+    if(mode==='delete')body=`<p>${kind==='members'?'Medlemmerne fjernes fra listen og mister adgang til organisationen. Ventende invitationer annulleres. Opgaver og historik bevares; administratoren overtager opgaver uden en aktiv modtager.':kind==='roles'?'Rollerne fjernes også fra de medlemmer, som bruger dem.':'De valgte afsenderadresser fjernes fra tilladelseslisten.'}</p><ul>${targets.map(r=>`<li>${esc(r.displayName||r.title||r.email)}</li>`).join('')}</ul><button type="button" class="btn" data-grid-action="confirm-delete" data-grid-kind="${kind}">Bekræft sletning</button>`;
     else if(mode==='bulk')body=formStart+`<label>Arbejdsrolle<select name="roleId">${roleOptions(d.roleId??'__keep__',true)}</select></label><label>Synlighed i vidensgrafen<select name="graph"><option value="keep">Behold eksisterende valg</option><option value="show"${d.graph==='show'?' selected':''}>Vis i grafen</option><option value="hide"${d.graph==='hide'?' selected':''}>Skjul i grafen</option></select></label><small>Ændringerne gælder de ${targets.length} valgte medlemmer.</small>`+save+'</form>';
     else if(kind==='members'){
       const create=mode==='create';
@@ -63,9 +63,18 @@ window.FinchSettingsGrids=(()=>{
     }else if(kind==='roles')body=owner()?formStart+`<label>Rollenavn<input name="title" maxlength="80" value="${esc(d.title||'')}" required></label><label>Ansvar og mandat<textarea name="description" maxlength="2000" rows="8" required>${esc(d.description||'')}</textarea></label>`+save+'</form>':`<p class="settings-role-description">${esc(item.description)}</p>`;
     else if(kind==='senders')body=owner()?formStart+`<label>Emailadresse<input type="email" name="email" maxlength="254" value="${esc(d.email||'')}" required></label><p>Adressen må sende opgaver, når mailindgangen er aktiveret. Den får ikke konto- eller dataadgang.</p>`+save+'</form>':`<p>${esc(item.email)}</p>`;
     else body=`<dl><dt>Afsender</dt><dd>${esc(item.sender)}</dd><dt>Modtaget</dt><dd>${esc(item.time)}</dd><dt>Status</dt><dd>${esc(item.statusText)}</dd></dl>${item.reason?`<p>${esc(item.reason)}</p>`:''}${item.rejectionNoticeStatus?`<p>Afvisningsmail: ${esc(({sent:'Sendt',pending:'Afventer genforsøg',sending:'Sender',suppressed:'Ikke sendt',failed:'Afsendelse kunne ikke bekræftes'})[item.rejectionNoticeStatus]||item.rejectionNoticeStatus)}${item.rejectionNoticeReason?`<br>${esc(item.rejectionNoticeReason)}`:''}</p>`:''}${item.taskId?`<button type="button" class="btn" data-action="select-task" data-task="${esc(item.taskId)}">Åbn ${esc(item.taskId)}</button>`:''}<small>Modtagelseshistorikken er en læsevisning.</small>`;
-    box.innerHTML=`<header><h3>${esc(heading)}</h3>${close}</header>${body}<p class="settings-grid-error account-error" role="alert" hidden></p>`;
+    const deleteMember=kind==='members'&&mode==='item'&&owner()&&!item.isOwner?`<button type="button" class="btn btn-ghost" data-grid-action="delete-item" data-grid-kind="members" data-grid-id="${esc(item.id)}">Slet medlem</button>`:'';
+    if(kind==='members'&&mode==='item'&&owner()&&item.isOwner)body+='<p class="settings-note">Organisationens ejer kan redigeres, men kan ikke slettes.</p>';
+    box.innerHTML=`<header><h3>${esc(heading)}</h3><div class="settings-context-actions">${close}${deleteMember}</div></header>${body}<p class="settings-grid-error account-error" role="alert" hidden></p>`;
   }
-  function open(kind,id,mode='item',targets=[]){if(host.busy())return;editors.set(kind,{id,mode,targets});context(kind);}
+  function open(kind,id,mode='item',targets=[]){if(host.busy())return;
+    if(mode==='item'){
+      if(!rows(kind).some(row=>row.id===id))return;
+      const table=tables.get(kind);if(table&&readyTables.has(table)){table.deselectRow();table.selectRow(id);}
+      selections.set(kind,[id]);toolbar(kind);
+    }
+    editors.set(kind,{id,mode,targets});context(kind);
+  }
   function mailPatch(change){const mail=host.team().inbound;return {revision:mail.revision,enabled:mail.enabled,allowedSenders:[...mail.allowedSenders],...change};}
   function operations(kind,editor,data){const item=rows(kind).find(r=>r.id===editor.id),mode=editor.mode,revision=Number(data?.get('__revision'));
     if(kind==='members'){
@@ -84,6 +93,7 @@ window.FinchSettingsGrids=(()=>{
     const button=event.target.closest('[data-grid-action]');if(!button||!host||host.busy())return;const kind=button.dataset.gridKind,action=button.dataset.gridAction,chosen=rows(kind).filter(r=>selected(kind).includes(r.id));
     if(action==='refresh'){for(const id of drafts.keys())if(id.startsWith(kind+':'))drafts.delete(id);editors.delete(kind);host.clearDirty(kind);host.refresh();return;}if(action==='clear'){tables.get(kind)?.deselectRow();if(editors.get(kind)?.mode!=='create'){editors.delete(kind);context(kind);}return;}if(action==='close'){editors.delete(kind);context(kind);return;}
     if(!owner()||kind==='mailLog')return;
+    if(action==='delete-item'){const item=rows(kind).find(row=>row.id===button.dataset.gridId);if(item&&!(kind==='members'&&item.isOwner))open(kind,null,'delete',[item]);return;}
     if(action==='create'){open(kind,null,'create');return;}if(action==='edit'){if(chosen.length)open(kind,chosen[0].id,chosen.length>1?'bulk':'item',chosen);return;}
     if(action==='delete'){if(chosen.length&&!(kind==='members'&&chosen.some(m=>m.isOwner||m.status==='revoked')))open(kind,null,'delete',chosen);return;}
     if(action==='confirm-delete'){const editor=editors.get(kind);if(editor?.mode!=='delete')return;const targets=editor.targets;
