@@ -21,6 +21,29 @@ test('both connection and work prompts contain the same browser policy',()=>{
   window.FinchStorage.ready=true;
   assert.ok(prompt().includes(window.ORDERLY.BROWSER_POLICY));
   assert.doesNotMatch(prompt(),/Du har mandat til at bygge siden undervejs/);
+  assert.doesNotMatch(prompt(),/page\.evaluate|Playwright/);
+});
+
+test('tool discovery and native calls are explicitly allowed while host permission denials stay binding',()=>{
+  const {BROWSER_POLICY}=content();
+  for(const phrase of ['læse fanernes URL og metadata','browser-/fanehåndtag uden at aktivere fanen','opdage og kalde sidens native WebMCP-tools','UI-reglen blokerer ikke WebMCP','browserværktøjets egne tilladelser','gengiv den konkrete fejl','Omgå ikke afvisningen'])assert.ok(BROWSER_POLICY.includes(phrase),phrase);
+});
+
+test('native registration and the supported JS bridge call the same tools and read back state without UI automation',async()=>{
+  const registered=[];let value='before';
+  const window={ORDERLY:content()};
+  const TOOLS=[{name:'post_task',description:'Create work',inputSchema:{type:'object'},run:()=>{}},{name:'get_state',description:'Read work',inputSchema:{type:'object'},run:()=>{}}];
+  const document={modelContext:{registerTool:(tool)=>registered.push(tool)},querySelector(){throw new Error('UI access forbidden');}};
+  const policyWrapper=app.slice(app.indexOf('  async function runTool('),app.indexOf('  async function executeTool('));
+  const adapters=app.slice(app.indexOf('  // WebMCP-tools returnerer'),app.indexOf('  // ---------- Prompt ----------'));
+  const sandbox={window,document,navigator:{},TOOLS,AbortController,structuredClone,console,num:(v,fallback)=>typeof v==='number'?v:fallback,
+    executeTool:async(tool,input)=>{if(tool.name==='post_task')value=input.title;return {status:'ok',value};}};
+  const register=vm.runInNewContext(policyWrapper+adapters+';registerWebMCP',sandbox);
+  register();assert.deepEqual(registered.map(t=>t.name),['post_task','get_state']);
+  const native=JSON.parse(await registered[0].execute({title:'native work'}));assert.equal(native.value,'native work');assert.equal(native.browser_policy,window.ORDERLY.BROWSER_POLICY);
+  assert.equal((await window.webmcp.call('get_state',{})).value,'native work');
+  const listed=window.webmcp.listTools();assert.equal(listed.length,2);assert.equal(value,'native work');
+  await window.webmcp.call('post_task',{title:'bridge work'});assert.equal(JSON.parse(await registered[1].execute({})).value,'bridge work');
 });
 
 test('invitation prompts protect the recipient browser too',()=>{
