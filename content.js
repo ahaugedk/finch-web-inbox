@@ -17,7 +17,7 @@ window.ORDERLY = (() => {
     key_values: 'Nøgle/værdi-par. { type: "key_values", items: [{ label, value }] }',
     stats: 'Nøgletal som store tal. { type: "stats", items: [{ label, value, hint? }] } – højst 4.',
     chart: 'Dashboarddiagram med Apache ECharts på egne sider. {type:"chart", title?, chart_type?:"bar"|"line"|"area"|"donut"|"scatter", unit?, controls?:true, binding:{table_id,x,y:["talkolonne"],aggregation?:"sum"|"avg"|"min"|"max"|"count",query?:{filters,order_by},max_rows?:2000}}. table_id skal være i sidens table_ids. Ændringer og visningsskift animeres af ECharts; uden en aktiv agent.',
-    data_grid: 'Live datatabel med Tabulator på egne sider. {type:"data_grid",title?,columns?:["kolonnenavn"],page_size?:25,controls?:true,binding:{table_id,query?:{filters,order_by}}}. Filtre, sortering, kolonneflytning og pagination styres af Tabulator; alle forespørgsler sker i sidens erklærede tabeller.',
+    data_grid: 'Live datatabel med Tabulator på egne sider. {type:"data_grid",title?,columns?:["kolonnenavn"],page_size?:25,controls?:true,binding:{table_id,query?:{filters,order_by}}}. Med skriveadgang via writable_table_ids vises også +, redigér/slet på hver række og batch-sletning. Filtre, sortering, kolonneflytning og pagination styres af Tabulator; alle forespørgsler sker i sidens erklærede tabeller.',
     metric: 'Animeret nøgletal med Apache ECharts på egne sider. {type:"metric",title?,unit?,binding:{table_id,column?,aggregation:"sum"|"avg"|"min"|"max"|"count",query?:{filters}}}. Beregnes i databasen på hele udvalget. column kan udelades for count.',
     table: 'Tabel. { type: "table", columns: ["…"], rows: [["…"]] } – højst 6 kolonner og 12 rækker.',
     list: 'Punktliste. { type: "list", items: ["…"], ordered?: true }',

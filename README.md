@@ -254,3 +254,9 @@ GitHub-repositoryet er `git@github.com:ahaugedk/finch-web-inbox.git`. Projektrod
 ### Redigering og sletning af medlemmer
 
 Under Indstillinger → Medlemmer og invitationer vælger et klik på medlemmet også rækken og aktiverer handlingerne. Administratoren kan gemme navn, arbejdsrolle og synlighed i grafen i detaljepanelet samt vælge Slet medlem med en bekræftelse. Flere medlemmer kan vælges med afkrydsning til fælles redigering eller Slet valgte. Slettede medlemmer forsvinder fra medlemslisten og mister adgang; opgaver og historik bevares, og administratoren overtager arbejde uden en aktiv modtager. En ny invitation til samme email kræver ny accept. Organisationens ejer kan redigeres, men ikke slettes.
+
+### Fælles CRUD på tabelvisninger
+
+`grid-ui.js` samler +, kompakte blyant-/sletteikoner, fælles bekræftelse, typede rækkeformularer og tabelstil. Medlemmer, arbejdsroller og ekstra mailafsendere har handlinger på hver række, + i værktøjslinjen samt multiselect og Slet valgte. Datatabeller har samme kontroller, row-by-row save og kladder, som bevares under baggrundsopdateringer. Handlingskolonnen står fast, mens tabellen rulles vandret. Batch-sletning bruger de valgte versioner og viser delvise fejl; ændrede rækker slettes ikke uden genindlæsning eller nyt valg.
+
+Egne sider får samme CRUD i `data_grid` og `<finch-data-grid>`, hvis tabellen er i sidens `writableTableIds`. Formularer fungerer også i den isolerede WebComponent uden at tillade formularnavigation. Læsevisninger og afsendelseshistorik får ikke skrivekontroller, og serveren kontrollerer stadig organisation, medlemskab, sideversion og skrivetilladelse ved hvert kald. Ny række fra en side bruger en stabil request_id ved genforsøg for at forhindre dubletter.

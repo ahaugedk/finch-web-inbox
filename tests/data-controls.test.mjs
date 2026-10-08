@@ -20,3 +20,11 @@ test('dashboard libraries are passed into the sandbox as encoded source without 
  const html=customPageDocument(page,'token',{revision:0,theme:{},stylesheet:'',logo:null,fonts:[]},{scripts:['/* </script><script>alert(1)</script> */'],css:'/* </script> */'});
  assert.ok(!html.includes('/* </script>'));assert.match(html,/FinchControlLibrary.install\(finch\)/);assert.match(html,/dashboardLibraries/);
 });
+test('grid write controls require declared access and row buttons unlock after a save refresh',()=>{
+ const registry=new Map(),scope={customElements:{get:name=>registry.get(name),define:(name,type)=>registry.set(name,type)},HTMLElement:class{},FinchGridUI:globalThis.FinchGridUI};
+ globalThis.FinchControlFactory(scope).install();const grid=Object.create(registry.get('finch-data-grid').prototype),button={disabled:true};
+ grid.localName='finch-data-grid';grid._cfg={binding:{table_id:id}};grid._local=false;grid._rows=[{id:'row'}];grid._grid={getRows:()=>[{getIndex:()=> 'row',getElement:()=>({querySelectorAll:()=>[button]})}]};
+ grid._adapter={insertRows(){},updateRow(){},deleteRow(){}};assert.equal(grid.writableGrid(),false);
+ grid._adapter.canWriteTable=()=>true;assert.equal(grid.writableGrid(),true);grid._busy=false;grid.syncGridActions();assert.equal(button.disabled,false);
+ grid._busy=true;grid.syncGridActions();assert.equal(button.disabled,true);grid._busy=false;grid._adapter.canWriteTable=()=>false;grid.syncGridActions();assert.equal(button.disabled,true);
+});

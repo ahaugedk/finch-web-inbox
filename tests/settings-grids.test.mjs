@@ -1,6 +1,7 @@
+import '../grid-ui.js';
 import test from 'node:test';import assert from 'node:assert/strict';import vm from 'node:vm';import {readFileSync} from 'node:fs';
 const team={canManage:true,roles:[{id:'r1',title:'Drift',description:'Ansvar i organisationen',revision:2}],members:[{id:'m1',name:'Maja',email:'maja@example.test',roleId:'r1',inGraph:true,revision:3,status:'active'},{id:'m2',name:'Bo',email:'bo@example.test',roleId:null,inGraph:false,revision:4,status:'invited'}],inbound:{revision:7,enabled:false,allowedSenders:['source@example.test'],members:[{email:'maja@example.test',name:'Maja',allowed:true}],recent:[]}};
-function setup(){const window={};vm.runInNewContext(readFileSync('settings-grids.js','utf8'),{window,document:{addEventListener(){}},FormData,Set,Map});window.FinchSettingsGrids.configure({team:()=>team,statuses:{active:'Medlem',invited:'Inviteret'}});return window.FinchSettingsGrids;}
+function setup(){const window={};vm.runInNewContext(readFileSync('settings-grids.js','utf8'),{window,document:{addEventListener(){}},FormData,Set,Map,FinchGridUI:globalThis.FinchGridUI,structuredClone});window.FinchSettingsGrids.configure({team:()=>team,statuses:{active:'Medlem',invited:'Inviteret'}});return window.FinchSettingsGrids;}
 const data=values=>{const d=new FormData();for(const [k,v] of Object.entries(values))d.set(k,v);return d;};
 test('bulk member edits retain individual names and revisions and only change the explicitly chosen fields',()=>{
  const api=setup(),editor={mode:'bulk',targets:team.members};const ops=api.operations('members',editor,data({roleId:'__keep__',graph:'hide'}));
@@ -21,12 +22,13 @@ test('role grid rows show assignment counts and role updates preserve stale vers
 });
 function interactive(){
  const current=structuredClone(team),listeners={},toolbar={innerHTML:''},classes=new Set(),collection={classList:{contains:name=>classes.has(name),toggle:(name,on)=>on?classes.add(name):classes.delete(name)}},box={hidden:true,innerHTML:'',closest:()=>collection,replaceChildren(){this.innerHTML='';}};
+ let confirmation;const gridUI={...globalThis.FinchGridUI,confirmDelete:input=>{confirmation=input;return Promise.resolve(false);}};
  const window={FinchList:{create:()=>'<button>Nyt medlem</button>'}};
  const document={addEventListener:(name,fn)=>{listeners[name]=fn;},querySelector:selector=>selector==='[data-grid-context="members"]'?box:selector==='[data-grid-toolbar="members"]'?toolbar:null};
- vm.runInNewContext(readFileSync('settings-grids.js','utf8'),{window,document,FormData,Set,Map});
+ vm.runInNewContext(readFileSync('settings-grids.js','utf8'),{window,document,FormData,Set,Map,FinchGridUI:gridUI,structuredClone});
  const api=window.FinchSettingsGrids;api.configure({team:()=>current,statuses:{active:'Medlem',invited:'Inviteret'},busy:()=>false});
  const click=(dataset,row=false)=>listeners.click({target:{closest:selector=>selector===(row?'[data-grid-open]':'[data-grid-action]')?{dataset}:null}});
- return {api,current,click,toolbar,box};
+ return {api,current,click,toolbar,box,confirmation:()=>confirmation};
 }
 test('opening a member selects it and enables editing and deletion without a separate checkbox click',()=>{
  const f=interactive();f.click({gridOpen:'members',gridId:'m1'},true);
@@ -34,7 +36,7 @@ test('opening a member selects it and enables editing and deletion without a sep
  assert.match(f.toolbar.innerHTML,/data-grid-action="edit" data-grid-kind="members">Redigér/);
  assert.match(f.toolbar.innerHTML,/data-grid-action="delete" data-grid-kind="members">Slet valgte/);
  f.click({gridAction:'delete-item',gridKind:'members',gridId:'m1'});
- assert.match(f.box.innerHTML,/Bekræft sletning/);assert.match(f.box.innerHTML,/<li>Maja<\/li>/);assert.ok(!f.box.innerHTML.includes('<li>Bo</li>'));
+ assert.equal(f.confirmation().items.length,1);assert.equal(f.confirmation().items[0].label,'Maja');assert.equal(f.confirmation().items[0].revision,3);
 });
 test('the owner can be edited but not deleted; removed members disappear and cannot keep selection actions enabled',()=>{
  const f=interactive();f.current.members[0].isOwner=true;f.click({gridOpen:'members',gridId:'m1'},true);

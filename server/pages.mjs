@@ -1,3 +1,4 @@
+import '../grid-ui.js';
 import '../data-controls.js';
 import '../brand-model.js';
 // Custom code runs in a separate, opaque-origin document, never in Finch's account context.
@@ -19,7 +20,7 @@ export function customPageDocument(page, token, branding = {revision:0,theme:{},
   const declarations=globalThis.FinchBrandModel.declarations(branding);
   const fonts=branding.fonts.map(f=>`@font-face{font-family:"${f.family}";src:url("${f.data_url}");font-weight:${f.weight};font-style:${f.style};font-display:swap}`).join('\n');
   const themeCss=`:host{${declarations};font-family:var(--sans);color:var(--ink)}h1,h2,h3{font-family:var(--serif)}`;
-  const config = safeJson({ token, pageId: page.id, component: page.component, values: page.values || {}, valuesRevision:page.valuesRevision||0,branding, declarations, fonts, themeCss,dashboardLibraries,controlsSource:globalThis.FinchControlLibrary.source });
+  const config = safeJson({ token, pageId: page.id, component: page.component, values: page.values || {}, valuesRevision:page.valuesRevision||0,branding, declarations, fonts, themeCss,dashboardLibraries,writableTableIds:page.writableTableIds||[],fileIds:page.fileIds||[],gridSource:globalThis.FinchGridUI.factorySource,controlsSource:globalThis.FinchControlLibrary.source });
   return `<!doctype html><html lang="da"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><script>
   (() => {
     const config = ${config}; const pending = new Map(); const files=new Map(),pdfPreviews=new Map(),localHandlers=new Map();let currentValues=config.values,valuesRevision=config.valuesRevision,saveQueue=Promise.resolve();let fileBytes=0;let seq = 0;
@@ -32,7 +33,7 @@ export function customPageDocument(page, token, branding = {revision:0,theme:{},
       if (event.source !== parent || event.data?.channel !== 'finch-page-result' || event.data.token !== config.token) return;
       const item = pending.get(event.data.id); if (!item) return;
       clearTimeout(item.timer); pending.delete(event.data.id);
-      if (event.data.error) item.reject(new Error(event.data.error)); else item.resolve(event.data.result);
+      if (event.data.error) {const error=new Error(event.data.error);error.status=event.data.status;item.reject(error);} else item.resolve(event.data.result);
     });
     const readFile=fileId=>{
       if(files.has(fileId))return files.get(fileId);
@@ -53,8 +54,8 @@ export function customPageDocument(page, token, branding = {revision:0,theme:{},
     window.finch = Object.freeze({ pageId: config.pageId, html: config.component.html, css: config.component.css, get values(){return currentValues;}, branding:config.branding, themeCss:config.themeCss,
       ready: readyPromise, get root() { const host = document.querySelector(config.component.tag_name); return host?.shadowRoot || host; },
       queryTable: input => call('query_table', input), getTable: tableId => call('get_table', { table_id: tableId }),
-      getRow:(tableId,rowId)=>call('get_row',{table_id:tableId,row_id:rowId}),insertRows:(tableId,rows)=>call('insert_rows',{table_id:tableId,rows}),
-      updateRow:(tableId,rowId,values,revision)=>call('update_row',{table_id:tableId,row_id:rowId,values,revision}),deleteRow:(tableId,rowId,revision)=>call('delete_row',{table_id:tableId,row_id:rowId,revision}),
+      getRow:(tableId,rowId)=>call('get_row',{table_id:tableId,row_id:rowId}),canWriteTable:tableId=>config.writableTableIds.includes(tableId),listFiles:async()=>Promise.all(config.fileIds.map(async fileId=>{const result=await call('get_file',{file_id:fileId});return result.file||result;})),insertRows:(tableId,rows,options={})=>call('insert_rows',{table_id:tableId,rows,request_id:options.request_id}),
+      updateRow:(tableId,rowId,values,revision,source_url)=>call('update_row',{table_id:tableId,row_id:rowId,values,revision,source_url}),deleteRow:(tableId,rowId,revision)=>call('delete_row',{table_id:tableId,row_id:rowId,revision}),
       getFile:fileId=>call('get_file',{file_id:fileId}),readFile,getFileUrl:async fileId=>(await readFile(fileId)).url,releaseFile,renderPdfPage,
       downloadFile:fileId=>{if(navigator.userActivation&&!navigator.userActivation.isActive)return Promise.reject(new Error('Klik på en knap for at hente filen.'));return call('download_file',{file_id:fileId});},
       emit,on,saveValues,requestAgent,get echarts(){return window.echarts;},get Tabulator(){return window.Tabulator;},get tabulatorCss(){return config.dashboardLibraries.css;},
@@ -64,7 +65,7 @@ export function customPageDocument(page, token, branding = {revision:0,theme:{},
     addEventListener('unhandledrejection', event => parent.postMessage({channel:'finch-page', token:config.token, method:'report_error', input:{message:String(event.reason?.message || event.reason)}}, '*'));
     for(const source of config.dashboardLibraries.scripts){const vendor=document.createElement('script');vendor.textContent=source;document.head.append(vendor);}
     globalThis.FinchTabulatorCss=config.dashboardLibraries.css;
-    const controls=document.createElement('script');controls.textContent=config.controlsSource+';globalThis.FinchControlLibrary=createFinchControlLibrary(globalThis);FinchControlLibrary.install(finch);';document.head.append(controls);
+    const controls=document.createElement('script');controls.textContent=config.gridSource+';globalThis.FinchGridUI=createFinchGridUI(globalThis);'+config.controlsSource+';globalThis.FinchControlLibrary=createFinchControlLibrary(globalThis);FinchControlLibrary.install(finch);';document.head.append(controls);
     const script = document.createElement('script'); script.textContent = config.component.javascript; document.head.append(script);
     if (!customElements.get(config.component.tag_name)) customElements.define(config.component.tag_name, class extends HTMLElement {
       connectedCallback() { const root = this.attachShadow({mode:'open'}); const style = document.createElement('style'); style.textContent = config.themeCss+'\\n'+config.component.css+'\\n'+config.branding.stylesheet; root.append(style); const body = document.createElement('div'); body.innerHTML = config.component.html; root.append(body); }

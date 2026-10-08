@@ -32,7 +32,7 @@ http.createServer(async (incoming, outgoing) => {
       outgoing.writeHead(response.status, Object.fromEntries(response.headers)); outgoing.end(Buffer.from(await response.arrayBuffer())); return;
     }
     const relative = url.pathname === '/' ? 'index.html' : decodeURIComponent(url.pathname).slice(1);
-    if (!['index.html', 'app.js', 'storage.js', 'file-model.js', 'file-media.js', 'list-ui.js','table-editor.js','data.js','data-controls.js', 'pages.js', 'brand-model.js', 'branding.js', 'settings.js','settings-grids.js', 'work.js', 'notifications.js', 'notification-sw.js', 'onboarding.js', 'content.js','site-config.js','connection.js','invitations.js', 'styles.css'].includes(relative) && !/^assets\/(?:fonts|pdfjs|dashboard)\/[a-z0-9.-]+$/.test(relative)) {
+    if (!['index.html', 'app.js', 'storage.js', 'file-model.js', 'file-media.js', 'list-ui.js','grid-ui.js','table-editor.js','data.js','data-controls.js', 'pages.js', 'brand-model.js', 'branding.js', 'settings.js','settings-grids.js', 'work.js', 'notifications.js', 'notification-sw.js', 'onboarding.js', 'content.js','site-config.js','connection.js','invitations.js', 'styles.css'].includes(relative) && !/^assets\/(?:fonts|pdfjs|dashboard)\/[a-z0-9.-]+$/.test(relative)) {
       outgoing.writeHead(404); outgoing.end('Not found'); return;
     }
     const data = await readFile(path.join(root, relative));

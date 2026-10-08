@@ -13,22 +13,27 @@ window.FinchSettingsGrids=(()=>{
     return (t.inbound?.recent||[]).map(m=>({...m,time:new Date(m.createdAt).toLocaleString('da-DK'),statusText:({accepted:'Oprettet',rejected:'Afvist',failed:'Afventer genforsøg',processing:'Modtager'})[m.status]||m.status}));
   }
   function actions(kind){const n=selected(kind).length,b=host.busy(),chosen=rows(kind).filter(r=>selected(kind).includes(r.id));
-    const button=(action,label,disabled=false,primary=false)=>`<button type="button" class="${primary?'btn':'btn btn-ghost'}" data-grid-action="${action}" data-grid-kind="${kind}"${disabled||b?' disabled':''}>${label}</button>`;
+    const button=(action,label,disabled=false,primary=false)=>`<button type="button" class="${primary?'btn':'btn btn-ghost'} grid-text-action" data-grid-action="${action}" data-grid-kind="${kind}"${disabled||b?' disabled':''}>${label}</button>`;
     const noun={members:['medlem','medlemmer'],roles:['rolle','roller'],senders:['afsender','afsendere'],mailLog:['modtagelse','modtagelser']}[kind],count=rows(kind).length;
-    return `<div class="settings-grid-toolbar"><div class="settings-grid-actions">${owner()&&kind!=='mailLog'?
+    return `<div class="settings-grid-toolbar grid-toolbar"><div class="settings-grid-actions grid-toolbar-actions">${owner()&&kind!=='mailLog'?
       (button('edit','Redigér',!n||(kind!=='members'&&n!==1))+button('delete','Slet valgte',!n||(kind==='members'&&chosen.some(m=>m.isOwner||m.status==='revoked'))))+
       (kind==='members'?button('resend','Gensend invitation',!n||chosen.some(m=>m.isOwner||['active','accepted','revoked'].includes(m.status))):''):''}
-      ${button('refresh','Genindlæs',false)}${n?button('clear','Ryd valg',false):''}</div><span class="settings-grid-selection" role="status">${n?`${n} valgt`:`${count} ${noun[count===1?0:1]}`}</span>${owner()&&['members','roles','senders'].includes(kind)?window.FinchList.create(kind==='members'?'Nyt medlem':kind==='roles'?'Ny rolle':'Ny afsender',{'data-grid-action':'create','data-grid-kind':kind}):''}</div>`;
+      ${button('refresh','Genindlæs',false)}${n?button('clear','Ryd valg',false):''}</div><span class="settings-grid-selection grid-selection" role="status">${n?`${n} valgt`:`${count} ${noun[count===1?0:1]}`}</span>${owner()&&['members','roles','senders'].includes(kind)?globalThis.FinchGridUI.createHtml(kind==='members'?'Nyt medlem':kind==='roles'?'Ny rolle':'Ny afsender',{'data-grid-action':'create','data-grid-kind':kind}):'<span class="grid-read-only">Læsevisning</span>'}</div>`;
   }
-  function html(kind){return `<div class="settings-grid-collection" data-grid-collection="${kind}"><div class="settings-grid-main"><div data-grid-toolbar="${kind}">${actions(kind)}</div><div class="settings-grid" id="settings-grid-${kind}" aria-label="${labels[kind]}"></div></div><aside class="settings-context" data-grid-context="${kind}" aria-label="Detaljer: ${labels[kind]}" hidden></aside></div>`;}
+  function html(kind){return `<div class="settings-grid-collection" data-grid-collection="${kind}"><div class="settings-grid-main"><div data-grid-toolbar="${kind}">${actions(kind)}</div><div class="settings-grid finch-crud-grid" id="settings-grid-${kind}" aria-label="${labels[kind]}"></div></div><aside class="settings-context" data-grid-context="${kind}" aria-label="Detaljer: ${labels[kind]}" hidden></aside></div>`;}
   function plain(cell){const span=document.createElement('span');span.textContent=String(cell.getValue()??'—');return span;}
   function nameCell(kind){return cell=>{const button=document.createElement('button');button.type='button';button.className='settings-grid-open';button.textContent=String(cell.getValue()||'—');button.dataset.gridOpen=kind;button.dataset.gridId=cell.getRow().getData().id;return button;};}
-  function columns(kind){const choose={formatter:'rowSelection',titleFormatter:'rowSelection',titleFormatterParams:{rowRange:'active'},hozAlign:'center',headerSort:false,width:44,resizable:false};
+  function rowActions(kind){return {title:'Handlinger',field:'__actions',width:112,minWidth:112,maxWidth:112,resizable:false,frozen:true,headerSort:false,formatter:cell=>{
+    const item=cell.getRow().getData(),box=document.createElement('div');box.className='grid-row-actions';
+    const attrs={'data-grid-kind':kind,'data-grid-id':item.id};box.innerHTML=globalThis.FinchGridUI.iconHtml('edit','Redigér række',{...attrs,'data-grid-action':'edit-item'},host.busy())+globalThis.FinchGridUI.iconHtml('delete',item.isOwner?'Ejeren kan ikke slettes':'Slet række',{...attrs,'data-grid-action':'delete-item'},host.busy()||!!item.isOwner);return box;
+  }};}
+  function columns(kind){const choose={field:'__selection',formatter:'rowSelection',titleFormatter:'rowSelection',titleFormatterParams:{rowRange:'active'},hozAlign:'center',headerSort:false,width:44,resizable:false};
+    const selection=owner()&&kind!=='mailLog'?[choose]:[];
     const c=(title,field,more={})=>({title,field,minWidth:140,headerFilter:'input',formatter:plain,...more});
-    if(kind==='members')return [choose,c('Navn','displayName',{formatter:nameCell(kind),minWidth:180}),c('Email','email',{minWidth:210}),c('Status','statusText',{minWidth:180}),c('Arbejdsrolle','roleTitle',{minWidth:180}),c('I grafen','graphText',{minWidth:100})];
-    if(kind==='roles')return [choose,c('Rolle','title',{formatter:nameCell(kind),minWidth:180}),c('Ansvar og mandat','description',{minWidth:240,widthGrow:3}),c('Tildelt','memberCount',{sorter:'number',minWidth:100,headerFilter:false})];
-    if(kind==='senders')return [choose,c('Emailadresse','email',{formatter:nameCell(kind),minWidth:240})];
-    return [choose,c('Modtaget','time'),c('Emne','subject',{formatter:nameCell(kind),minWidth:240,widthGrow:2}),c('Afsender','sender',{minWidth:210}),c('Status','statusText')];
+    if(kind==='members')return [...selection,c('Navn','displayName',{formatter:nameCell(kind),minWidth:180}),c('Email','email',{minWidth:210}),c('Status','statusText',{minWidth:180}),c('Arbejdsrolle','roleTitle',{minWidth:180}),c('I grafen','graphText',{minWidth:100}),...(owner()?[rowActions(kind)]:[])];
+    if(kind==='roles')return [...selection,c('Rolle','title',{formatter:nameCell(kind),minWidth:180}),c('Ansvar og mandat','description',{minWidth:240,widthGrow:3}),c('Tildelt','memberCount',{sorter:'number',minWidth:100,headerFilter:false}),...(owner()?[rowActions(kind)]:[])];
+    if(kind==='senders')return [...selection,c('Emailadresse','email',{formatter:nameCell(kind),minWidth:240}),...(owner()?[rowActions(kind)]:[])];
+    return [...selection,c('Modtaget','time'),c('Emne','subject',{formatter:nameCell(kind),minWidth:240,widthGrow:2}),c('Afsender','sender',{minWidth:210}),c('Status','statusText')];
   }
   function mount(kind){const element=document.getElementById('settings-grid-'+kind);if(!element||element.closest('[hidden]'))return;
     if(tables.has(kind)){const table=tables.get(kind);if(readyTables.has(table))table.redraw(true);context(kind);return;}
@@ -87,15 +92,22 @@ window.FinchSettingsGrids=(()=>{
     throw new Error('Handlingen understøttes ikke.');
   }
   async function perform(kind,ops,message,clearKey){try{await host.perform(ops,message);if(clearKey)drafts.delete(clearKey);editors.delete(kind);selections.set(kind,[]);host.clearDirty(kind);host.redraw();}catch(e){const editor=editors.get(kind);if(editor?.mode==='delete'){editor.targets=editor.targets.filter(target=>rows(kind).some(r=>r.id===target.id&&(kind!=='members'||r.status!=='revoked')));if(!editor.targets.length)editors.delete(kind);}host.redraw();const box=document.querySelector(`[data-grid-context="${kind}"] .settings-grid-error`)||document.getElementById('settings-error');if(box){box.hidden=false;box.textContent=e.message;}}}
+  async function confirmRemoval(kind,targets){const snapshot=structuredClone(targets),team=host.team(),organization=host.organizationId?.();
+    const accepted=await globalThis.FinchGridUI.confirmDelete({items:snapshot.map(item=>({...item,label:item.displayName||item.title||item.email})),title:snapshot.length===1?'Slet række':`Slet ${snapshot.length} rækker`,description:kind==='members'?'Adgang og invitationer fjernes. Opgaver og historik bevares; administratoren overtager arbejde uden en aktiv modtager.':kind==='roles'?'Rollerne fjernes også fra de medlemmer, der bruger dem.':'De valgte afsenderadresser fjernes fra tilladelseslisten.'});
+    if(!accepted||host.organizationId?.()!==organization||host.busy()||!owner())return;
+    const ops=kind==='senders'?[{path:'/inbound',method:'PUT',data:{revision:team.inbound.revision,enabled:team.inbound.enabled,allowedSenders:team.inbound.allowedSenders.filter(email=>!snapshot.some(item=>item.email===email))}}]:snapshot.map(item=>({path:`/${kind}/${item.id}`,method:'DELETE',data:{revision:item.revision}}));
+    await perform(kind,ops,'De valgte poster er slettet');
+  }
   document.addEventListener('click',event=>{
     const row=event.target.closest('[data-grid-open]');if(row){open(row.dataset.gridOpen,row.dataset.gridId);return;}
     const tab=event.target.closest('[data-grid-mail-view]');if(tab){if(!host.busy()){mailView=tab.dataset.gridMailView;activate('inbound');}return;}
     const button=event.target.closest('[data-grid-action]');if(!button||!host||host.busy())return;const kind=button.dataset.gridKind,action=button.dataset.gridAction,chosen=rows(kind).filter(r=>selected(kind).includes(r.id));
     if(action==='refresh'){for(const id of drafts.keys())if(id.startsWith(kind+':'))drafts.delete(id);editors.delete(kind);host.clearDirty(kind);host.refresh();return;}if(action==='clear'){tables.get(kind)?.deselectRow();if(editors.get(kind)?.mode!=='create'){editors.delete(kind);context(kind);}return;}if(action==='close'){editors.delete(kind);context(kind);return;}
     if(!owner()||kind==='mailLog')return;
-    if(action==='delete-item'){const item=rows(kind).find(row=>row.id===button.dataset.gridId);if(item&&!(kind==='members'&&item.isOwner))open(kind,null,'delete',[item]);return;}
+    if(action==='edit-item'){open(kind,button.dataset.gridId);return;}
+    if(action==='delete-item'){const item=rows(kind).find(row=>row.id===button.dataset.gridId);if(item&&!(kind==='members'&&item.isOwner))confirmRemoval(kind,[item]);return;}
     if(action==='create'){open(kind,null,'create');return;}if(action==='edit'){if(chosen.length)open(kind,chosen[0].id,chosen.length>1?'bulk':'item',chosen);return;}
-    if(action==='delete'){if(chosen.length&&!(kind==='members'&&chosen.some(m=>m.isOwner||m.status==='revoked')))open(kind,null,'delete',chosen);return;}
+    if(action==='delete'){if(chosen.length&&!(kind==='members'&&chosen.some(m=>m.isOwner||m.status==='revoked')))confirmRemoval(kind,chosen);return;}
     if(action==='confirm-delete'){const editor=editors.get(kind);if(editor?.mode!=='delete')return;const targets=editor.targets;
       const ops=kind==='senders'?[{path:'/inbound',method:'PUT',data:mailPatch({allowedSenders:host.team().inbound.allowedSenders.filter(e=>!targets.some(t=>t.email===e))})}]:targets.map(r=>({path:`/${kind}/${r.id}`,method:'DELETE',data:{revision:r.revision}}));perform(kind,ops,'De valgte poster er fjernet');return;}
     if(action==='resend'){if(chosen.length&&chosen.every(m=>!m.isOwner&&!['active','accepted','revoked'].includes(m.status)))perform(kind,chosen.map(m=>({path:`/members/${m.id}/resend`,method:'POST',data:{revision:m.revision}})),'Invitationerne er gensendt');return;}
