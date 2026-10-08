@@ -105,6 +105,15 @@ async function inboundStageAttachments(db,env,orgId,emailId,mail,provider,signal
   return {files,warnings};
 }
 function mailHeader(mail,name){return Object.entries(mail.headers||{}).filter(([key])=>key.toLowerCase()===name).map(([,value])=>value);}
+function inboundAuthentication(mail){
+  // Provider results only: GRAY/unknown are inconclusive, not authentication failures.
+  const verdict=value=>{
+    const normalized=typeof value==='string'?value.trim().toLowerCase():'unknown';
+    if(normalized==='grey')return 'gray';
+    return ['pass','fail','gray','unknown','processing_failed'].includes(normalized)?normalized:'unknown';
+  };
+  return Object.fromEntries(['spf','dkim','dmarc'].map(key=>[key,verdict(mail.authentication?.[key])]));
+}
 async function rejectionSafety(db,env,settings,row,mail){
   if(mail.id!==row.provider_email_id||inboundMailbox(mail.from)!==row.sender)return 'Afsenderen kunne ikke bekræftes.';
   const recipients=mail.received_for?.length?mail.received_for:[...(mail.to||[]),...(mail.bcc||[])];
@@ -117,8 +126,8 @@ async function rejectionSafety(db,env,settings,row,mail){
   const path=paths.length===1&&typeof paths[0]==='string'&&/^(?:<[^<>\s]+>|[^<>\s]+)$/.test(paths[0].trim())?inboundMailbox(paths[0]):null;
   if(paths.length&&(!path||paths.length!==1))return 'Ugyldig eller tom returadresse; der sendes ikke autosvar.';
   if(mail.authentication?.dmarc==='pass')return null;
-  // GRAY is not enough to import a task. Only reply to an already permitted address
-  // with provider-confirmed SPF and one matching SMTP reverse path.
+  // Replies remain stricter than task import. Only reply to an already permitted
+  // address with provider-confirmed SPF and one matching SMTP reverse path.
   if(mail.authentication?.dmarc==='gray'&&mail.authentication.spf==='pass'&&path===row.sender&&await db.first(`SELECT s.organization_id FROM organization_inbound_settings s WHERE s.organization_id=? AND ${inboundAllowedSql()}`,settings.organization_id,row.sender,row.sender,row.sender))return null;
   return 'Afsenderens domæne kunne ikke bekræftes sikkert; der sendes ikke autosvar.';
 }
@@ -175,14 +184,20 @@ async function inboundImport(db,env,settings,event,messageId,provider,now,signal
     if(!await inboundAllowed(db,settings.organization_id,sender)){await reject('Afsenderadressen er ikke tilladt.');return;}
     mail=await provider.getEmail(emailId,signal);
     if(mail.id!==emailId||inboundMailbox(mail.from)!==sender){await reject('Mailens afsenderoplysninger stemmer ikke overens.');return;}
-    if(mail.authentication?.dmarc!=='pass'){await reject('Afsenderens domæne kunne ikke bekræftes (DMARC).');return;}
+    const authentication=inboundAuthentication(mail);
+    if(authentication.dmarc==='fail'){await reject('Afsenderens domænekontrol fejlede (DMARC).');return;}
+    // DMARC pass confirms alignment even when a separate SPF/DKIM test fails.
+    if(authentication.dmarc!=='pass'&&(authentication.spf==='fail'||authentication.dkim==='fail')){
+      await reject(`Afsenderens domænekontrol fejlede (${authentication.spf==='fail'?'SPF':'DKIM'}; DMARC er ikke bekræftet).`);return;
+    }
     const recipients=(mail.received_for?.length?mail.received_for:[...(mail.to||[]),...(mail.bcc||[])]).map(inboundMailbox).filter(Boolean);
     if(!recipients.includes(inboundAddress(env,settings))){await reject('Mailen er ikke leveret til denne organisations adresse.');return;}
     const body=typeof mail.text==='string'&&mail.text.trim()?mail.text:inboundPlainHtml(mail.html);
     const attachments=await inboundStageAttachments(db,env,settings.organization_id,emailId,mail,provider,signal,now);
+    if(authentication.dmarc!=='pass')attachments.warnings.push(`Mailen er modtaget med uafklaret afsenderkontrol: SPF ${authentication.spf}, DKIM ${authentication.dkim}, DMARC ${authentication.dmarc}. Afsenderens identitet er ikke fuldt bekræftet.`);
     if(body.length>INBOUND_LIMITS.textChars)attachments.warnings.push('Mailteksten er forkortet til 100.000 tegn.');
     const content={id:emailId,from:inboundShort(mail.from,600),sender,to:recipients,subject:inboundShort(mail.subject,1000),text:body.slice(0,INBOUND_LIMITS.textChars),
-      receivedAt:mail.created_at,messageId:inboundShort(mail.message_id,500),authentication:{spf:mail.authentication.spf,dkim:mail.authentication.dkim,dmarc:'pass'},
+      receivedAt:mail.created_at,messageId:inboundShort(mail.message_id,500),authentication,
       attachments:attachments.files.map(({objectKey,description,createdAt,...f})=>f),warnings:attachments.warnings};
     for(let attempt=0;attempt<4;attempt++){
       const org=await db.first('SELECT * FROM organizations WHERE id=?',settings.organization_id);const state=JSON.parse(org.state_json);
@@ -190,7 +205,7 @@ async function inboundImport(db,env,settings,event,messageId,provider,now,signal
       let seq=Number.isSafeInteger(state.seq)?state.seq:0;let taskId;do{taskId=`S-${200+(++seq)}`;}while(state.tasks.some(t=>t.id===taskId));state.seq=seq;
       const stamp=new Date(now).toLocaleTimeString('da-DK',{timeZone:'Europe/Copenhagen',hour:'2-digit',minute:'2-digit'}).replace('.',':');
       const task={id:taskId,kind:'case',phase:'active',agentWorkStatus:'queued',from:state.agent||'Agenten',title:inboundShort(content.subject,80)||'Opgave fra mail',tag:'Mail',time:stamp,at:now,createdAt:now,
-        preview:`Fra ${sender}`,ui:[],values:{},draft:{},updates:[],read:false,progress:0,inboundEmail:{id:emailId,sender,receivedAt:content.receivedAt,attachments:content.attachments,warnings:content.warnings},
+        preview:`Fra ${sender}`,ui:[],values:{},draft:{},updates:[],read:false,progress:0,inboundEmail:{id:emailId,sender,receivedAt:content.receivedAt,authentication,attachments:content.attachments,warnings:content.warnings},
         emails:[{direction:'in',from:content.from,to:inboundAddress(env,settings),subject:content.subject,body:content.text,at:Date.parse(mail.created_at)||now,inbound:true}]};
       state.tasks.push(task);state.events.push({id:`E-${crypto.randomUUID()}`,type:'inbound_email_received',caseId:taskId,at:now,delivered:false,detail:{email_id:emailId,sender}});state.events=state.events.slice(-100);
       state._workWriteId=crypto.randomUUID();const serialized=JSON.stringify(state);if(inboundEncoder.encode(serialized).length>INBOUND_LIMITS.stateBytes)throw new Error('inbound_workspace_full');

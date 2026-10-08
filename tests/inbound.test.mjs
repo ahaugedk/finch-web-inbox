@@ -67,9 +67,10 @@ test('disabled, revoked and unlisted senders cannot create tasks; explicitly all
 });
 test('provider authentication and actual delivery address are checked, never attacker-supplied mail headers',async()=>{
   const f=await fixture();const enabled=await f.settings();const forged=f.mail(enabled.data.address,'member@example.test',{authentication:{dmarc:'fail'},headers:{'authentication-results':'dmarc=pass'}});await f.notify(forged);
-  const missing=f.mail(enabled.data.address,'member@example.test',{authentication:{spf:'pass',dkim:'pass'}});await f.notify(missing);
+  const failedSpf=f.mail(enabled.data.address,'member@example.test',{authentication:{spf:'fail',dkim:'gray',dmarc:'gray'}});await f.notify(failedSpf);
+  const failedDkim=f.mail(enabled.data.address,'member@example.test',{authentication:{spf:'pass',dkim:'fail',dmarc:'gray'}});await f.notify(failedDkim);
   const wrong=f.mail(enabled.data.address,'member@example.test',{received_for:['somebody@another.example.test']});await f.notify(wrong);
-  assert.equal((await f.call(f.base,f.owner)).data.state.tasks.length,0);assert.equal(f.objects.size,0);assert.equal(f.DB.sqlite.prepare("SELECT COUNT(*) AS n FROM inbound_messages WHERE status='rejected'").get().n,3);
+  assert.equal((await f.call(f.base,f.owner)).data.state.tasks.length,0);assert.equal(f.objects.size,0);assert.equal(f.DB.sqlite.prepare("SELECT COUNT(*) AS n FROM inbound_messages WHERE status='rejected'").get().n,4);
 });
 test('retries recover provider errors and concurrent delivery leases cannot duplicate a case',async()=>{
   const f=await fixture();const enabled=await f.settings();const event=f.mail(enabled.data.address);let fail=true;f.setOverride(async()=>{if(fail)throw new Error('fake private credential');});
@@ -114,9 +115,31 @@ test('concurrent rejection delivery holds a lease and duplicate webhook only ret
   f.deps.sendInboundRejection=async()=>{calls++;entered();await blocked;return {id:'one-send'};};
   const first=f.notify(event);await started;assert.equal((await f.notify(event)).status,503);assert.equal(calls,1);release();assert.equal((await first).status,200);assert.equal((await f.notify(event)).status,200);assert.equal(calls,1);
 });
-test('GRAY DMARC can receive diagnostic feedback only with known sender and matching SPF-confirmed reverse path; never creates a task',async()=>{
+test('GRAY DMARC and DKIM create one task, preserve actual verdicts and warn without sending a rejection',async()=>{
   const f=await fixture();const enabled=await f.settings();const event=f.mail(enabled.data.address,'member@example.test',{authentication:{spf:'pass',dkim:'gray',dmarc:'gray'},headers:{'Return-Path':'<member@example.test>'}});
-  assert.equal((await f.notify(event)).status,200);assert.equal(f.notices.length,1);assert.match(f.notices[0].payload.text,/SPF pass, DKIM gray, DMARC gray/);assert.match(f.notices[0].payload.text,/mailadministrator/);assert.equal((await f.call(f.base,f.owner)).data.state.tasks.length,0);
+  assert.equal((await f.notify(event)).status,200);assert.equal((await f.notify(event)).status,200);assert.equal(f.notices.length,0);
+  const state=(await f.call(f.base,f.owner)).data.state;assert.equal(state.tasks.length,1);assert.equal(state.events.length,1);const task=state.tasks[0];
+  assert.equal(task.phase,'active');assert.equal(task.agentWorkStatus,'queued');assert.deepEqual(task.inboundEmail.authentication,{spf:'pass',dkim:'gray',dmarc:'gray'});assert.match(task.inboundEmail.warnings[0],/ikke fuldt bekræftet/);
+  const original=(await f.call(f.base+`/settings/inbound/emails/${event.data.email_id}`,f.owner)).data.email;assert.equal(original.authentication.dmarc,'gray');assert.deepEqual(original.warnings,task.inboundEmail.warnings);
+});
+test('inconclusive or missing provider results are accepted without inventing DMARC pass or trusting message headers',async()=>{
+  const f=await fixture();const enabled=await f.settings();
+  for(const authentication of [null,undefined,{spf:'pass',dkim:'pass'},{spf:'gray',dkim:'grey',dmarc:'grey'},{spf:'unknown',dkim:'processing_failed',dmarc:'unknown'}]){
+    const event=f.mail(enabled.data.address,'member@example.test',{authentication,headers:{'authentication-results':'dmarc=pass'}});assert.equal((await f.notify(event)).status,200);
+    const original=(await f.call(f.base+`/settings/inbound/emails/${event.data.email_id}`,f.owner)).data.email;assert.notEqual(original.authentication.dmarc,'pass');assert.ok(original.warnings.length);
+  }
+  assert.equal((await f.call(f.base,f.owner)).data.state.tasks.length,5);assert.equal(f.notices.length,0);
+  // DMARC pass can rely on SPF even when a separate DKIM test fails (or vice versa).
+  assert.equal((await f.notify(f.mail(enabled.data.address,'member@example.test',{authentication:{spf:'pass',dkim:'fail',dmarc:'pass'}}))).status,200);
+  assert.equal((await f.call(f.base,f.owner)).data.state.tasks.length,6);
+});
+test('GRAY never bypasses enablement, sender permission, actual delivery or member revocation',async()=>{
+  const f=await fixture();let enabled=await f.settings();const extra={authentication:{spf:'pass',dkim:'gray',dmarc:'gray'}};
+  await f.notify(f.mail(enabled.data.address,'outsider@example.test',extra));
+  await f.notify(f.mail(enabled.data.address,'member@example.test',{...extra,received_for:['different@example.test']}));
+  enabled=await f.settings({enabled:false});await f.notify(f.mail(enabled.data.address,'member@example.test',extra));
+  await f.settings();f.DB.sqlite.prepare("UPDATE organization_members SET status='revoked' WHERE id=?").run(f.memberId);await f.notify(f.mail(enabled.data.address,'member@example.test',extra));
+  assert.equal((await f.call(f.base,f.owner)).data.state.tasks.length,0);assert.equal(f.objects.size,0);assert.equal(f.DB.sqlite.prepare("SELECT COUNT(*) AS n FROM inbound_messages WHERE status='rejected'").get().n,4);
 });
 test('unsafe origins, duplicate or null reverse paths, automated mail and loops suppress replies',async()=>{
   const f=await fixture();const enabled=await f.settings({enabled:false});const cases=[
