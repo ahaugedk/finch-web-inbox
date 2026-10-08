@@ -4,6 +4,7 @@ import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 function page(url,agentBrowser=false){
   const calls=[],listeners=new Map();let accepted=false;const window={FinchConnection:{agentBrowser}};
+  vm.runInNewContext(readFileSync('content.js','utf8'),{window});
   vm.runInNewContext(readFileSync('invitations.js','utf8'),{window,location:new URL(url),URL,URLSearchParams,Response,AbortSignal,
     document:{addEventListener(name,fn){listeners.set(name,fn);}},fetch:async(path,options)=>{calls.push({path,...options});if(path.endsWith('/accept'))accepted=true;return Response.json({invitation:{status:accepted?'accepted':'invited',organizationName:'Testorganisation',organizationId:'22222222-2222-4222-8222-222222222222',expiresAt:Date.now()+86400000}});}});
   return {api:window.FinchInvitation,calls,async accept(){listeners.get('click')({target:{closest:()=>({dataset:{invitation:'accept'}})}});await new Promise(resolve=>setImmediate(resolve));}};

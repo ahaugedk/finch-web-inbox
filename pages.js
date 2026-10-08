@@ -118,7 +118,7 @@ window.FinchPages = (() => {
     const checkBindings=nodes=>{for(const node of nodes||[]){if(['chart','data_grid','metric'].includes(node.type)&&(!node.binding?.table_id||!ids.includes(node.binding.table_id)))throw new Error('Datakontroller skal binde til en af sidens valgte tabeller.');if(node.children)checkBindings(node.children);}};if(ui)checkBindings(ui);
     const approval=host.state().tasks.find(t=>t.id===p.proposalTaskId);if(approval?.response)approval.agentWorkStatus='done';
     Object.assign(p,{title,icon,tableIds:ids,fileIds,writableTableIds,agentAction,ui,component,status:'ready',revision:p.revision+1,updatedAt:Date.now()});
-    host.save(); await window.FinchStorage.flush(); host.open(p.id); return {status:'ok',page:summarize(p),warnings,guidance_for_agent:'Siden er gemt og åbnet. Kontrollér den visuelt, afprøv data/handlinger, og ret fejl med build_page. Siden har sit eget ikon i venstre liste.'};
+    host.save(); await window.FinchStorage.flush(); host.render(); return {status:'ok',page:summarize(p),warnings,guidance_for_agent:'Siden er gemt i baggrunden; brugerens visning er bevaret. Test data og handlinger i et separat, isoleret testmiljø, og ret fejl med build_page. Siden har sit eget ikon i venstre liste.'};
   }
   function rail() {
     return pages().filter(p=>p.status==='ready').map(p=>{let icon;try{icon=cleanIcon(p.icon);}catch{icon=cleanIcon('page');}return `<button data-action="open-page" data-page="${p.id}" data-label="${esc(p.title)}" title="${esc(p.title)}" aria-label="${esc(p.title)}"${host.state().view==='pages'&&host.state().pageId===p.id?' class="is-current" aria-current="page"':''}>${icon}</button>`;}).join('');

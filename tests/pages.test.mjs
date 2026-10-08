@@ -22,7 +22,9 @@ test('agent page proposals become work items and cannot be built before user app
   const input={page_id:result.page_id,revision:0,title:'Lastbiler',icon:'truck',table_ids:[tableId],component};
   await assert.rejects(t.pages.tool('build_page',input),/godkende/);
   t.pages.proposalAnswer(t.state.tasks[0],'approve-page');assert.equal(t.events[0].type,'page_approved');
+  t.state.pageId='human-selected-page';
   const built=await t.pages.tool('build_page',{...input,revision:1});assert.equal(built.page.status,'ready');assert.equal(t.state.pages[0].component.tag_name,'truck-configurator');
+  assert.equal(t.state.pageId,'human-selected-page');assert.equal(t.state.view,'inbox');
   await assert.rejects(t.pages.tool('build_page',{...input,revision:1}),/ændret/);
 });
 test('rejected proposals and foreign-table sources cannot produce a page',async()=>{

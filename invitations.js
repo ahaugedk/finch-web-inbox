@@ -18,6 +18,7 @@ window.FinchInvitation=(()=>{
       `1. Åbn ${url.href} i din indbyggede browser, så jeg kan se siden ved siden af chatten.`,
       '2. Kald sidens WebMCP-tool start_conversation. Jeg logger selv ind med den emailadresse, der modtog invitationen, og indtaster engangskoden på siden. Ved login_required: giv en kort status og kald wait_for_login. Gentag ved timeout; bed mig ikke skrive "klar" i chatten, og bed aldrig om koden i chatten.',
       '3. Hvis browseren ikke viser tools, kan du bruge await webmcp.call("start_conversation", {agent_name:"<dit navn>"}); webmcp.listTools() viser input. Følg organisationsbriefingen og get_state, og byg videre på eksisterende arbejde.',
+      window.ORDERLY.BROWSER_POLICY,
       '4. Vent med wait_for_user, når jeg skal vælge eller svare. Gentag ved timeout, mens samtalen er aktiv. Stop, hvis jeg beder dig stoppe, eller det aftalte arbejde er færdigt.',
     ].join('\n');
   }
