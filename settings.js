@@ -1,7 +1,7 @@
 window.FinchSettings=(()=>{
   const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   let host;let team=null;let org=null;let loadedRevision=-1;let loadedBrandRevision=-1;let generation=0;let busy=false;let error='';let brandFiles=[];let brandDirty=false;let brandPendingRevision=null;
-  let selectedSection='members',renderedRevision=-1;const dirtySections=new Set();
+  let selectedSection='members',renderedRevision=-1,pendingDraw=false;const dirtySections=new Set();
   const sectionItems=[
     {id:'members',title:'Medlemmer og invitationer',description:'Personer, adgang og synlighed i grafen'},
     {id:'roles',title:'Arbejdsroller',description:'Ansvar og mandat i organisationen'},
@@ -13,7 +13,7 @@ window.FinchSettings=(()=>{
   const statuses={active:'Medlem',accepted:'Accepteret · afventer første login',invited:'Inviteret',sending:'Sender…',failed:'Mail kunne ikke sendes',expired:'Invitation udløbet',declined:'Invitation afvist',revoked:'Adgang fjernet'};
   const gear='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 3-.7 2.4-2.1 1.2-2.4-.6-1.5 2.6 1.7 1.8v2.4l-1.7 1.8 1.5 2.6 2.4-.6 2.1 1.2L9 21h3l.7-2.4 2.1-1.2 2.4.6 1.5-2.6-1.7-1.8v-2.4l1.7-1.8-1.5-2.6-2.4.6-2.1-1.2L12 3z"/><circle cx="10.5" cy="12" r="3"/></svg>';
   function rail(){return `<button class="rail-settings${host.state().view==='settings'?' is-current':''}" data-action="view" data-view="settings" title="Indstillinger" data-label="Indstillinger" aria-label="Indstillinger"${host.state().view==='settings'?' aria-current="page"':''}>${gear}</button>`;}
-  function reset(){rendering=null;generation++;org=null;team=null;loadedRevision=-1;loadedBrandRevision=-1;busy=false;error='';brandFiles=[];brandDirty=false;brandPendingRevision=null;selectedSection='members';renderedRevision=-1;dirtySections.clear();window.FinchSettingsGrids.reset();document.getElementById('settings-view')?.classList.remove('settings-detail-open');}
+  function reset(){rendering=null;generation++;org=null;team=null;loadedRevision=-1;loadedBrandRevision=-1;busy=false;error='';brandFiles=[];brandDirty=false;brandPendingRevision=null;selectedSection='members';renderedRevision=-1;pendingDraw=false;dirtySections.clear();window.FinchSettingsGrids.reset();document.getElementById('settings-view')?.classList.remove('settings-detail-open');}
   function base(){return `/api/organizations/${window.FinchStorage.organization.id}/settings`;}
   async function request(path='',method='GET',data){
     const currentOrg=window.FinchStorage.organization?.id;const response=await fetch(base()+path,{method,credentials:'same-origin',cache:'no-store',headers:data?{'Content-Type':'application/json'}:{},...(data?{body:JSON.stringify(data)}:{}),signal:AbortSignal.timeout(20000)});
@@ -98,7 +98,7 @@ window.FinchSettings=(()=>{
     const owner=team?.canManage;loadedBrandRevision=window.FinchBranding.snapshot().revision;
     const items=availableSections();if(!items.some(item=>item.id===selectedSection))selectedSection=items[0].id;
     // Keep real form nodes, including selected files, when another section is saved.
-    window.FinchSettingsGrids.dispose();renderedRevision=loadedRevision;
+    window.FinchSettingsGrids.dispose();renderedRevision=loadedRevision;pendingDraw=false;
     const drafts=new Map([...box.querySelectorAll('[data-settings-panel]')].filter(panel=>dirtySections.has(panel.dataset.settingsPanel)&&!['members','roles','inbound'].includes(panel.dataset.settingsPanel)).map(panel=>[panel.dataset.settingsPanel,panel]));
     box.innerHTML=`<nav class="settings-list" aria-label="Indstillinger"><header><h2>Indstillinger</h2><p>${esc(window.FinchStorage.organization?.name)}</p></header><div class="settings-list-items">${items.map(item=>`<button type="button" class="item settings-list-item" data-settings-section="${item.id}" aria-controls="settings-panel-${item.id}"><strong class="subject">${item.title}</strong><span class="preview">${item.description}</span></button>`).join('')}</div></nav>
       <main class="settings-page"><button type="button" class="link settings-back" data-settings-back>← Indstillinger</button><header class="settings-section-header"><h2 id="settings-section-title" tabindex="-1"></h2></header>
@@ -117,12 +117,18 @@ window.FinchSettings=(()=>{
     selectSection(selectedSection);
     window.FinchNotifications.paint();
   }
-  async function renderSettings({background=false}={}){if(host.state().view!=='settings'||busy||brandDirty||dirtySections.size||window.FinchSettingsGrids.dirty)return;if(org===window.FinchStorage.organization?.id && team && loadedRevision===window.FinchStorage.organization.revision&&loadedBrandRevision===window.FinchBranding.snapshot().revision){if(renderedRevision!==loadedRevision)draw();else window.FinchSettingsGrids.activate(selectedSection);return;}
-    const box=document.getElementById('settings-view');if(team&&box?.contains(document.activeElement)&&document.activeElement.matches('input,textarea,select'))return;
+  const editing=()=>busy||brandDirty||dirtySections.size||window.FinchSettingsGrids.dirty||!!document.getElementById('settings-view')?.contains(document.activeElement)&&document.activeElement.matches('input,textarea,select,[contenteditable="true"]');
+  async function renderSettings({background=false}={}){if(host.state().view!=='settings'||editing())return;if(org===window.FinchStorage.organization?.id && team && loadedRevision===window.FinchStorage.organization.revision&&loadedBrandRevision===window.FinchBranding.snapshot().revision){if(pendingDraw||renderedRevision!==loadedRevision)draw();return;}
+    const box=document.getElementById('settings-view'),turn=generation;
     const visual=()=>JSON.stringify({team:team&&Object.fromEntries(Object.entries(team).filter(([key])=>key!=='organizationRevision')),brand:window.FinchBranding.snapshot(),brandFiles,error});const before=visual();
-    if(!team)draw();try{await load();if(!background||before!==visual()||!box?.firstElementChild)draw();else renderedRevision=loadedRevision;}catch(e){error=e.message;if(!background||before!==visual())draw();}}
+    if(!team)draw();try{await load();if(turn!==generation)return;const changed=pendingDraw||!background||before!==visual()||!box?.firstElementChild;
+      // A user may focus or edit a field while the request is in flight.
+      if(changed&&editing()){pendingDraw=true;return;}if(changed)draw();else renderedRevision=loadedRevision;
+    }catch(e){if(turn!==generation)return;error=e.message;if(!background||before!==visual()){if(editing())pendingDraw=true;else draw();}}}
   let rendering=null;
   function render(options){if(rendering)return rendering;const turn=generation;rendering=renderSettings(options).finally(()=>{if(turn===generation)rendering=null;});return rendering;}
+  // Resume a deferred refresh once focus leaves a clean form or header filter.
+  document.addEventListener('focusout',event=>{if(!event.target.closest('#settings-view'))return;const turn=generation;setTimeout(()=>{if(turn===generation)render({background:true});},0);});
   async function performGrid(operations,message){
     if(busy||!team?.canManage||!window.FinchStorage.ready)throw new Error('Kun administratoren kan ændre disse indstillinger.');
     busy=true;error='';const turn=generation;let completed=0;const box=document.getElementById('settings-view');if(box)box.inert=true;

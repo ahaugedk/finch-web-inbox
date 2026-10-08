@@ -19,6 +19,16 @@ test('connection channels expire, reject foreign-origin mutations and are bounde
  for(let i=0;i<29;i++)assert.equal((await f.call('/api/connections','POST',{})).status,201);assert.equal((await f.call('/api/connections','POST',{})).status,429);assert.equal(f.DB.sqlite.prepare('SELECT COUNT(*) AS n FROM agent_connections').get().n,29);
 });
 function connectionBrowser(href,fetch,userAgent='Ordinary Chrome',modelApi=true){let poll;const location={href,search:new URL(href).search};const window={},context={window,location,navigator:{userAgent,modelContext:modelApi?{}:undefined},document:{hidden:false,modelContext:modelApi?{}:undefined,addEventListener(){}},history:{replaceState(_state,_title,url){location.href=String(url);location.search=new URL(url).search;}},URL,URLSearchParams,Response,AbortSignal,fetch,setInterval:fn=>{poll=fn;return 1;},clearInterval(){}};vm.runInNewContext(readFileSync('connection.js','utf8'),context);return {api:window.FinchConnection,poll:()=>poll?.(),location};}
+test('connection heartbeats notify the UI only on a real transition or a changed error',async()=>{
+ let channel={id:'11111111-1111-4111-8111-111111111111',status:'waiting',agent:null,expires_at:1},failure=false,renders=0,connected=0;
+ const browser=connectionBrowser(ORIGIN,async()=>failure?Response.json({message:'Forbindelsen er forsinket'},{status:503}):Response.json({...channel}),'Codex');
+ await browser.api.initialize({onChange:()=>renders++,onConnected:async()=>connected++});const initial=renders;
+ for(let i=0;i<5;i++){channel.expires_at++;await browser.poll();}
+ assert.equal(renders,initial,'identical heartbeats must not rebuild forms');
+ failure=true;await browser.poll();await browser.poll();assert.equal(renders,initial+1,'an unchanged outage must not repeatedly rebuild the UI');
+ failure=false;await browser.poll();assert.equal(renders,initial+2,'recovery must remove the error');
+ channel={...channel,status:'connected',agent:'Codex'};await browser.poll();await browser.poll();assert.equal(renders,initial+3);assert.equal(connected,1);
+});
 test('ordinary browsers keep the connection page until an agent starts in another browser, without trusting WebMCP API presence',async()=>{
  let channel={id:'11111111-1111-4111-8111-111111111111',status:'waiting',agent:null,expires_at:Date.now()+100000};const fetch=async(path,init)=>{if(path.endsWith('/start'))channel={...channel,status:'connected',agent:JSON.parse(init.body).agent_name};return Response.json({...channel});};
  const human=connectionBrowser(ORIGIN+'/?org=22222222-2222-4222-8222-222222222222',fetch);let humanLogins=0,agentLogins=0;

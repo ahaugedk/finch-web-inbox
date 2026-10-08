@@ -23,12 +23,13 @@ test('role grid rows show assignment counts and role updates preserve stale vers
 function interactive(){
  const current=structuredClone(team),listeners={},toolbar={innerHTML:''},classes=new Set(),collection={classList:{contains:name=>classes.has(name),toggle:(name,on)=>on?classes.add(name):classes.delete(name)}},box={hidden:true,innerHTML:'',closest:()=>collection,replaceChildren(){this.innerHTML='';}};
  let confirmation;const gridUI={...globalThis.FinchGridUI,confirmDelete:input=>{confirmation=input;return Promise.resolve(false);}};
- const window={FinchList:{create:()=>'<button>Nyt medlem</button>'}};
- const document={addEventListener:(name,fn)=>{listeners[name]=fn;},querySelector:selector=>selector==='[data-grid-context="members"]'?box:selector==='[data-grid-toolbar="members"]'?toolbar:null};
+ const instances=[],element={closest:()=>null,querySelectorAll:()=>[]};
+ const window={Tabulator:class{constructor(){this.events={};this.redraws=0;instances.push(this);}on(name,fn){this.events[name]=fn;}redraw(){this.redraws++;}deselectRow(){}selectRow(){}destroy(){}}};
+ const document={getElementById:()=>element,addEventListener:(name,fn)=>{listeners[name]=fn;},querySelectorAll:()=>[],querySelector:selector=>selector==='[data-grid-context="members"]'?box:selector==='[data-grid-toolbar="members"]'?toolbar:null};
  vm.runInNewContext(readFileSync('settings-grids.js','utf8'),{window,document,FormData,Set,Map,FinchGridUI:gridUI,structuredClone});
  const api=window.FinchSettingsGrids;api.configure({team:()=>current,statuses:{active:'Medlem',invited:'Inviteret'},busy:()=>false});
  const click=(dataset,row=false)=>listeners.click({target:{closest:selector=>selector===(row?'[data-grid-open]':'[data-grid-action]')?{dataset}:null}});
- return {api,current,click,toolbar,box,confirmation:()=>confirmation};
+ return {api,current,click,toolbar,box,instances,confirmation:()=>confirmation};
 }
 test('opening a member selects it and enables editing and deletion without a separate checkbox click',()=>{
  const f=interactive();f.click({gridOpen:'members',gridId:'m1'},true);
@@ -45,4 +46,12 @@ test('the owner can be edited but not deleted; removed members disappear and can
  f.click({gridAction:'delete-item',gridKind:'members',gridId:'m1'});assert.ok(!f.box.innerHTML.includes('Bekræft sletning'));
  f.current.members[0].status='revoked';assert.equal(f.api.rows('members').some(m=>m.id==='m1'),false);
  assert.match(f.api.html('members'),/data-grid-action="edit" data-grid-kind="members" disabled/);
+});
+
+test('repeated settings activation keeps the context form and header filter nodes intact',()=>{
+ const f=interactive();f.api.activate('members');const table=f.instances[0];table.events.tableBuilt();f.click({gridOpen:'members',gridId:'m1'},true);
+ let writes=0,markup=f.box.innerHTML;Object.defineProperty(f.box,'innerHTML',{get:()=>markup,set:value=>{writes++;markup=value;}});
+ const redraws=table.redraws;for(let i=0;i<5;i++)f.api.activate('members');
+ assert.equal(writes,0,'an open editor must not be replaced by activation');assert.equal(table.redraws,redraws,'header filters must not be rebuilt by an unchanged heartbeat');
+ f.api.activate('branding');f.api.activate('members');assert.equal(table.redraws,redraws+1,'a grid becoming visible still resizes once');assert.equal(writes,0);
 });

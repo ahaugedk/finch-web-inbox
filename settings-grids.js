@@ -1,6 +1,6 @@
 window.FinchSettingsGrids=(()=>{
   const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  let host,mailView='senders';const tables=new Map(),readyTables=new WeakSet(),selections=new Map(),editors=new Map(),drafts=new Map();
+  let host,mailView='senders',activeKind=null;const tables=new Map(),readyTables=new WeakSet(),selections=new Map(),editors=new Map(),drafts=new Map();
   const labels={members:'Medlemmer og invitationer',roles:'Arbejdsroller',senders:'Ekstra afsendere',mailLog:'Seneste modtagelser'};
   const key=(kind,id)=>kind+':'+id;
   const selected=kind=>(selections.get(kind)||[]).filter(id=>rows(kind).some(row=>row.id===id));
@@ -36,17 +36,17 @@ window.FinchSettingsGrids=(()=>{
     return [...selection,c('Modtaget','time'),c('Emne','subject',{formatter:nameCell(kind),minWidth:240,widthGrow:2}),c('Afsender','sender',{minWidth:210}),c('Status','statusText')];
   }
   function mount(kind){const element=document.getElementById('settings-grid-'+kind);if(!element||element.closest('[hidden]'))return;
-    if(tables.has(kind)){const table=tables.get(kind);if(readyTables.has(table))table.redraw(true);context(kind);return;}
+    if(tables.has(kind)){const table=tables.get(kind);if(activeKind!==kind&&readyTables.has(table))table.redraw(true);activeKind=kind;return;}
     const ids=selected(kind).filter(id=>rows(kind).some(r=>r.id===id));selections.set(kind,ids);
     const table=new window.Tabulator(element,{data:rows(kind),index:'id',layout:'fitColumns',height:470,columns:columns(kind),selectableRows:'highlight',pagination:true,paginationSize:25,paginationSizeSelector:[10,25,50,100],paginationCounter:'rows',placeholder:'Ingen poster.',locale:'da',langs:{da:{pagination:{page_size:'Rækker',page_title:'Vis side',first:'Første',first_title:'Første side',last:'Sidste',last_title:'Sidste side',prev:'Forrige',prev_title:'Forrige side',next:'Næste',next_title:'Næste side',counter:{showing:'Viser',of:'af',rows:'rækker',pages:'sider'}},headerFilters:{default:'Filtrér…'}}}});
-    tables.set(kind,table);
+    tables.set(kind,table);activeKind=kind;
     table.on('tableBuilt',()=>{if(tables.get(kind)!==table)return;readyTables.add(table);if(ids.length)table.selectRow(ids);toolbar(kind);});
     table.on('rowSelectionChanged',data=>{if(tables.get(kind)!==table)return;selections.set(kind,data.map(r=>r.id));toolbar(kind);});
     table.on('rowClick',(event,row)=>{if(!event.target.closest('input,button')&&!host.busy())open(kind,row.getData().id);});
     table.on('renderComplete',()=>{element.querySelectorAll('input[type=checkbox]').forEach(input=>input.setAttribute('aria-label',input.closest('.tabulator-header')?'Vælg alle filtrerede rækker':'Vælg række'));});
     context(kind);
   }
-  function toolbar(kind){const element=document.querySelector(`[data-grid-toolbar="${kind}"]`);if(element)element.innerHTML=actions(kind);}
+  function toolbar(kind){const element=document.querySelector(`[data-grid-toolbar="${kind}"]`),markup=actions(kind);if(element&&element._finchHtml!==markup){element._finchHtml=markup;element.innerHTML=markup;}}
   function roleOptions(value,keep=false){return `${keep?`<option value="__keep__"${value==='__keep__'?' selected':''}>Behold eksisterende rolle</option>`:''}<option value=""${value===''?' selected':''}>Ingen arbejdsrolle</option>${(host.team()?.roles||[]).map(r=>`<option value="${esc(r.id)}"${r.id===value?' selected':''}>${esc(r.title)}</option>`).join('')}`;}
   function context(kind){const box=document.querySelector(`[data-grid-context="${kind}"]`);if(!box)return;
     const editor=editors.get(kind),item=editor?.id&&rows(kind).find(r=>r.id===editor.id);
@@ -115,7 +115,7 @@ window.FinchSettingsGrids=(()=>{
   document.addEventListener('submit',event=>{const form=event.target.closest('[data-grid-form]');if(!form)return;event.preventDefault();if(!owner()||host.busy())return;const kind=form.dataset.gridForm,editor=editors.get(kind);if(!editor)return;try{const data=new FormData(form);data.set('__revision',form.dataset.revision);perform(kind,operations(kind,editor,data),kind==='members'&&editor.mode==='create'?'Invitationen er sendt':'Ændringerne er gemt',key(kind,editor.mode==='item'?editor.id:editor.mode));}catch(e){const notice=form.parentElement.querySelector('.settings-grid-error');notice.hidden=false;notice.textContent=e.message;}});
   function saveDraft(event){const form=event.target.closest('[data-grid-form]');if(!form||!host)return;const data=Object.fromEntries(new FormData(form));data.inGraph=!!form.querySelector('[name=inGraph]:checked');data.revision=Number(form.dataset.revision);drafts.set(key(form.dataset.gridForm,form.dataset.gridMode==='item'?form.dataset.gridId:form.dataset.gridMode),data);host.markDirty(form.dataset.gridForm);}
   document.addEventListener('input',saveDraft);document.addEventListener('change',saveDraft);
-  function activate(section){if(section==='inbound'){if(!document.querySelector(`[data-grid-mail-panel="${mailView}"]`))mailView='senders';document.querySelectorAll('[data-grid-mail-panel]').forEach(panel=>panel.hidden=panel.dataset.gridMailPanel!==mailView);document.querySelectorAll('[data-grid-mail-view]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.gridMailView===mailView)));mount(mailView);}else if(['members','roles'].includes(section))mount(section);}
-  function dispose(){const old=[...tables.values()];tables.clear();for(const table of old)table.destroy();}
+  function activate(section){if(section==='inbound'){if(!document.querySelector(`[data-grid-mail-panel="${mailView}"]`))mailView='senders';document.querySelectorAll('[data-grid-mail-panel]').forEach(panel=>panel.hidden=panel.dataset.gridMailPanel!==mailView);document.querySelectorAll('[data-grid-mail-view]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.gridMailView===mailView)));mount(mailView);}else if(['members','roles'].includes(section))mount(section);else activeKind=null;}
+  function dispose(){const old=[...tables.values()];tables.clear();activeKind=null;for(const table of old)table.destroy();}
   return {openCreate(kind){if(owner()&&!host.busy()){open(kind,null,'create');document.querySelector(`[data-grid-form="${kind}"] input`)?.focus();}},configure(options){host=options;},html,activate,dispose,reset(){dispose();selections.clear();editors.clear();drafts.clear();mailView='senders';},get dirty(){return !!drafts.size;},rows,operations};
 })();
